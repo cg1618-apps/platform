@@ -83,6 +83,17 @@ hostname whose service is not up and recovers on its own when it is, which is
 the correct behaviour for one tunnel serving several apps with independent
 deploy cadences.
 
+## The apex page
+
+`cg1618.com` is served by a third container in this project: `nginx:alpine`
+listening on **8007**, with `apex/index.html` and `apex/nginx.conf` mounted
+read-only. The page is generated from `apps.yml` and committed; the container
+runs no application code and has no database.
+
+Its health probe is `/healthz` rather than `/`, because `try_files` serves the
+page for any path — a probe against `/` cannot tell a working server from one
+serving a stale document.
+
 ## What is not here yet
 
 Deploying is still each application's own `deploy/` directory. The reusable

@@ -40,6 +40,15 @@ credentials-file: /etc/cloudflared/credentials.json
 ingress:
 """
 
+APEX = """  # The apex page, which is infrastructure rather than an application: it is a
+  # rendering of this registry, served from apex/ in this repository. It has no
+  # entry in apps.yml for that reason - and the day it needs a backend it
+  # becomes an app like any other, with a repo and an entry of its own.
+  - hostname: cg1618.com
+    service: http://apex:8007
+
+"""
+
 CATCH_ALL = """
   # Required catch-all. cloudflared refuses to start without it, and it must be
   # the last rule.
@@ -49,8 +58,13 @@ CATCH_ALL = """
 
 def render(registry: dict) -> str:
     """Return the full contents of cloudflared/config.yml."""
-    parts = [HEADER]
+    parts = [HEADER, APEX]
     for app in registry["apps"]:
+        # A planned app has reserved its hostname, port and database, but
+        # nothing is serving them yet. Routing it would publish a hostname that
+        # answers 502, which is worse than one that does not resolve.
+        if app["status"] != "live":
+            continue
         # The tunnel is the public path, so "lan-only" is implemented by the
         # absence of a rule rather than by anything written here.
         if app["exposure"] == "lan-only":

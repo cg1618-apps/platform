@@ -74,7 +74,13 @@ services:
       # /healthz, not "/": try_files serves the page for any path, so a probe
       # against "/" cannot tell a working server from one serving a stale
       # document. nginx:alpine ships busybox wget and no curl.
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8007/healthz"]
+      #
+      # 127.0.0.1, not localhost: busybox resolves localhost to ::1 first, and
+      # a config mounted read-only cannot be given an IPv6 listener by the
+      # image's own entrypoint. The address is pinned at both ends rather than
+      # one, because either alone leaves a probe that depends on resolution
+      # order.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8007/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

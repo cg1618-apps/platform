@@ -28,6 +28,7 @@ def app(**overrides):
         "repo": "git@github.com:cg1618-apps/media.git",
         "exposure": "public",
         "health_path": "/api/health",
+        "status": "live",
         "description": "Media tracker & database",
     }
     base.update(overrides)
@@ -60,7 +61,7 @@ def test_a_lan_only_app_is_not_routed():
         app(),
         app(name="money", hostname="money.cg1618.com", port=8001,
             database="money", repo="git@github.com:cg1618-apps/money.git",
-            exposure="lan-only", health_path="/health"),
+            exposure="lan-only", health_path="/health", status="live"),
     ]}
     hostnames = [r.get("hostname") for r in yaml.safe_load(render(registry))["ingress"]]
     assert "media.cg1618.com" in hostnames
@@ -74,7 +75,7 @@ def test_a_cloudflare_access_app_is_routed_and_marked():
     registry = {"apps": [
         app(name="journal", hostname="journal.cg1618.com", port=8002,
             database="journal", repo="git@github.com:cg1618-apps/journal.git",
-            exposure="cloudflare-access", health_path="/health"),
+            exposure="cloudflare-access", health_path="/health", status="live"),
     ]}
     rendered = render(registry)
     hostnames = [r.get("hostname") for r in yaml.safe_load(rendered)["ingress"]]
@@ -85,3 +86,25 @@ def test_a_cloudflare_access_app_is_routed_and_marked():
 def test_the_rendered_file_is_valid_yaml_with_the_credentials_path():
     out = yaml.safe_load(render(REGISTRY))
     assert out["credentials-file"] == "/etc/cloudflared/credentials.json"
+
+
+def test_a_planned_app_is_not_routed():
+    # An entry reserves a hostname, a port and a database the moment an app is
+    # planned - that is what stops a second app taking them - but nothing is
+    # serving it. A rule would publish a hostname that answers 502, which is
+    # worse than one that does not resolve.
+    registry = {"apps": [app(name="food", hostname="food.cg1618.com", port=8001,
+                             database="food",
+                             repo="git@github.com:cg1618-apps/food.git",
+                             status="planned")]}
+    hostnames = [r.get("hostname") for r in yaml.safe_load(render(registry))["ingress"]]
+    assert "food.cg1618.com" not in hostnames
+
+
+def test_the_apex_is_routed_even_though_it_is_not_in_the_registry():
+    # The apex page is infrastructure - a rendering of apps.yml - so it has no
+    # entry of its own, and the rule is emitted regardless of what the registry
+    # holds.
+    out = yaml.safe_load(render({"apps": [app()]}))
+    rules = {r["hostname"]: r["service"] for r in out["ingress"] if "hostname" in r}
+    assert rules["cg1618.com"] == "http://apex:8007"

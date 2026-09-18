@@ -44,6 +44,7 @@ def test_an_unknown_field_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "status": "live",
                 "description": "x",
                 "prot": 8001,
             }
@@ -64,6 +65,7 @@ def test_an_unknown_exposure_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "world-readable",
                 "health_path": "/api/health",
+                "status": "live",
                 "description": "x",
             }
         ]
@@ -85,6 +87,7 @@ def test_a_hostname_outside_the_domain_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "status": "live",
                 "description": "x",
             }
         ]
@@ -105,6 +108,7 @@ def test_no_database_is_legal(schema):
                 "repo": "git@github.com:cg1618-apps/apex.git",
                 "exposure": "public",
                 "health_path": "/",
+                "status": "live",
                 "description": "x",
             }
         ]

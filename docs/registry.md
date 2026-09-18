@@ -21,6 +21,12 @@ apps:
     description: Media tracker & database
 ```
 
+`status` separates a **claim** from a **running service**. An entry reserves the
+hostname, the port and the database name the moment an app is planned — which is
+what stops a second app taking them — but only a `live` app is routed by the
+tunnel and linked from the apex page. Routing a planned app would publish a
+hostname that answers 502, which is worse than one that does not resolve.
+
 `health_path` is declared rather than assumed because the applications do not
 share a stack. `/api/health` is the media tracker's answer — it opens a real
 database session and compares `alembic_version` to the head the running code
@@ -64,14 +70,37 @@ registries for the collision cases, and asserts the mirror case on the same
 fixture for the exposure rule, so a green means the rule did the refusing rather
 than something incidental.
 
+## What is generated from it
+
+| File | Generator | Checked by |
+| --- | --- | --- |
+| `cloudflared/config.yml` | `bin/generate_ingress.py` | CI, `--check` |
+| `apex/index.html` | `bin/generate_apex.py` | CI, `--check` |
+
+Both are committed rather than built at deploy time, so what will be served
+appears in the pull request diff where a person reads it. Neither is ever
+hand-edited; CI fails when the committed output and `apps.yml` disagree.
+
+**The apex page is not in the registry.** `cg1618.com` is a rendering of
+`apps.yml` rather than an application, so it has no entry and its ingress rule
+is emitted unconditionally. The day it needs a backend, a database,
+authentication or per-user state it becomes `cg1618-apps/landing` with its own
+repository, its own port and an entry like any other app — that rule is what
+keeps "no application code in the infrastructure repository" honest rather than
+arbitrary.
+
 ## Adding an application
 
-1. A pull request to this repository adding its `apps.yml` entry. The ingress,
-   the port and the database follow from it.
+1. A pull request to this repository adding its `apps.yml` entry, with
+   `status: planned`. The hostname, port and database are reserved from that
+   moment; nothing is routed yet.
 2. `bin/provision <app>` once, when it exists.
 3. A new repository in `cg1618-apps` satisfying the app contract: a container on
    the port this file assigns, the health path it declares here, `DATABASE_URL`
    from the environment, and a `main` branch that is production.
+
+4. When it can actually serve, one line: `status: live`. That is the change
+   that routes its hostname and links it from the apex page.
 
 It never touches `media` or any other app.
 

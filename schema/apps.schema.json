@@ -2,7 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "cg1618 application registry",
   "type": "object",
-  "required": ["apps"],
+  "required": [
+    "apps"
+  ],
   "additionalProperties": false,
   "properties": {
     "apps": {
@@ -10,17 +12,64 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name", "hostname", "port", "database", "repo", "exposure", "health_path", "description"],
+        "required": [
+          "name",
+          "hostname",
+          "port",
+          "database",
+          "repo",
+          "exposure",
+          "health_path",
+          "description",
+          "status"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-          "hostname": {"type": "string", "pattern": "^[a-z0-9.-]+\\.cg1618\\.com$"},
-          "port": {"type": "integer", "minimum": 8000, "maximum": 8099},
-          "database": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]*$"},
-          "repo": {"type": "string", "pattern": "^git@github\\.com:cg1618-apps/[a-z0-9-]+\\.git$"},
-          "exposure": {"enum": ["public", "cloudflare-access", "lan-only"]},
-          "health_path": {"type": "string", "pattern": "^/"},
-          "description": {"type": "string", "minLength": 1}
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "hostname": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\.cg1618\\.com$"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 8000,
+            "maximum": 8099
+          },
+          "database": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^git@github\\.com:cg1618-apps/[a-z0-9-]+\\.git$"
+          },
+          "exposure": {
+            "enum": [
+              "public",
+              "cloudflare-access",
+              "lan-only"
+            ]
+          },
+          "health_path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "live"
+            ]
+          }
         }
       }
     }

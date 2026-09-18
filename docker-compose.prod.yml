@@ -57,6 +57,29 @@ services:
     # which is the correct behaviour for one tunnel serving several apps with
     # independent deploy cadences.
 
+  apex:
+    # cg1618.com. A rendering of apps.yml, generated and committed, served as
+    # static files - no application code in the infrastructure repository. The
+    # day it needs a backend it graduates to its own repo and its own entry.
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./apex/index.html:/usr/share/nginx/html/index.html:ro
+      - ./apex/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      cg1618:
+        aliases:
+          - apex
+    healthcheck:
+      # /healthz, not "/": try_files serves the page for any path, so a probe
+      # against "/" cannot tell a working server from one serving a stale
+      # document. nginx:alpine ships busybox wget and no curl.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8007/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   pgdata:
 

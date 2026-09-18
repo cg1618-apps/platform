@@ -13,6 +13,13 @@
 credentials-file: /etc/cloudflared/credentials.json
 
 ingress:
+  # The apex page, which is infrastructure rather than an application: it is a
+  # rendering of this registry, served from apex/ in this repository. It has no
+  # entry in apps.yml for that reason - and the day it needs a backend it
+  # becomes an app like any other, with a repo and an entry of its own.
+  - hostname: cg1618.com
+    service: http://apex:8007
+
   - hostname: media.cg1618.com
     service: http://media-app:8000
 

@@ -28,6 +28,7 @@ def app(**overrides):
         "repo": "git@github.com:cg1618-apps/media.git",
         "exposure": "public",
         "health_path": "/api/health",
+        "status": "live",
         "description": "Media tracker & database",
     }
     base.update(overrides)

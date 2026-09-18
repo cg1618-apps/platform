@@ -1,0 +1,21 @@
+# GENERATED FROM apps.yml BY bin/generate_ingress.py - DO NOT EDIT.
+#
+# Regenerate with `python bin/generate_ingress.py`; CI fails if this file and
+# apps.yml disagree. Add a hostname by adding its app to apps.yml, which is
+# also where exposure is decided and where journal, health and money are
+# refused `public`.
+#
+# The tunnel's id is NOT here. It is passed on the command line from TUNNEL_ID
+# in the platform's .env, which keeps this file static and committable - it can
+# be written before the tunnel exists. The id is not a secret either way; the
+# credentials JSON is, and it is mounted read-only from a path the .env names.
+
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: media.cg1618.com
+    service: http://media-app:8000
+
+  # Required catch-all. cloudflared refuses to start without it, and it must be
+  # the last rule.
+  - service: http_status:404

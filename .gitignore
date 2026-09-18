@@ -1,0 +1,19 @@
+# Each app is its own repository, cloned inside this one. The two histories
+# never see each other, which is what makes the nesting safe.
+/media/
+/art/
+/food/
+/journal/
+/health/
+/money/
+/travel/
+
+# Per-machine, never committed.
+CLAUDE.local.md
+.env
+credentials.json
+
+__pycache__/
+*.pyc
+.venv/
+venv/

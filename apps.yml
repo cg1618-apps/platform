@@ -3,6 +3,11 @@
 # Adding an entry is a pull request to this repository; `bin/provision <app>`
 # then creates the database and the role. The ingress, the apex page and the
 # list of databases the backup job dumps are all generated from this file.
+#
+# `status` separates a claim from a running service. An entry reserves the
+# hostname, the port and the database name the moment the app is planned - that
+# is what stops a second app taking them - but only a `live` app is routed by
+# the tunnel. Routing a planned app would publish a hostname that answers 502.
 apps:
   - name: media
     hostname: media.cg1618.com
@@ -11,4 +16,35 @@ apps:
     repo: git@github.com:cg1618-apps/media.git
     exposure: public
     health_path: /api/health
+    status: live
     description: Media tracker & database
+
+  - name: food
+    hostname: food.cg1618.com
+    port: 8001
+    database: food
+    repo: git@github.com:cg1618-apps/food.git
+    exposure: public
+    health_path: /health
+    status: planned
+    description: Ingredients, recipes, what is cookable, and the cooking schedule
+
+  - name: travel
+    hostname: travel.cg1618.com
+    port: 8002
+    database: travel
+    repo: git@github.com:cg1618-apps/travel.git
+    exposure: public
+    health_path: /health
+    status: planned
+    description: Packing and buying lists, transport information, and the current trip
+
+  - name: art
+    hostname: art.cg1618.com
+    port: 8003
+    database: art
+    repo: git@github.com:cg1618-apps/art.git
+    exposure: public
+    health_path: /health
+    status: planned
+    description: Practice records, references, schedule, and the drawing roadmap

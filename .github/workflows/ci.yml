@@ -31,6 +31,11 @@ jobs:
       - name: Check the generated ingress matches the registry
         run: python bin/generate_ingress.py --check
 
+      # The apex page is the other generated artefact. Same reasoning: the page
+      # that will be served appears in the diff where a person reads it.
+      - name: Check the generated apex page matches the registry
+        run: python bin/generate_apex.py --check
+
       - name: Run the tests
         run: python -m pytest tests/ -q
 

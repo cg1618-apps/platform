@@ -13,6 +13,8 @@ and ignored by it, so the histories never meet.
 - `schema/apps.schema.json` — the shape `apps.yml` must have.
 - `bin/validate_apps.py` — the policy a schema cannot express.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
+- `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and
+  the contract an app joins them on.
 - `docs/` — how the box is arranged and why.
 
 `main` is production and moves only by a release pull request from `dev`.

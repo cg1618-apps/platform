@@ -283,6 +283,54 @@ def test_health_path_comes_from_the_registry():
 
 ---
 
+### Task 2b: The migration hook — a decision this plan did not foresee
+
+**Reading `rollback.sh` line by line shows that a generic rollback is not
+possible as the plan assumed.** Three of its steps are not "deploying" at all,
+they are *Alembic*:
+
+- it records the schema's revision beside the dump, by querying
+  `alembic_version`;
+- it refuses to downgrade a revision whose file contains the literal line
+  `irreversible = True`;
+- it downgrades with `alembic downgrade <target>`, run from the **new** image
+  with `--entrypoint alembic`, because the previous image has never heard of
+  the revisions being reversed — and because omitting `--entrypoint` silently
+  re-ran the upgrade that had just failed, observed on the box.
+
+An app written against a different migration tool, or with no migrations at
+all, can satisfy none of that. So the platform cannot own tier 2.
+
+**Proposed contract, for the owner to accept or replace.** An app that has
+migrations ships one executable, `deploy/migrations`, with three subcommands:
+
+| Command | Prints / does | Used by |
+| --- | --- | --- |
+| `current` | the revision the **database** is at | `bin/deploy`, writing the sidecar beside the dump |
+| `added <from> <to>` | the migration files a deploy would add, one per line, empty if none | `bin/deploy`'s unapproved-migration refusal, and `bin/rollback`'s "did this deploy add revisions" |
+| `downgrade <target>` | reverses to that revision, non-zero if it refuses | `bin/rollback` tier 2 |
+
+An app with no such file declares it has no migrations: `bin/deploy` skips the
+sidecar and the approval gate, and `bin/rollback` goes straight from tier 1 to
+tier 3. That is exactly right for an app whose schema never changes, and it is
+what `travel` will look like on day one.
+
+`migrations_path` then stops being a workflow input — `added` answers that
+question from inside the app, where the answer lives.
+
+**Why this shape rather than parameterising the platform.** Every alternative
+puts one app's tool in the shared repository: a case statement on tool name, a
+config key naming a downgrade command, or a Python entry point. All three make
+the platform know about Alembic, and the next app's tool, and the one after.
+The hook makes the app answer three questions about itself, which is the same
+move `health_path` already made.
+
+**What this costs:** the media tracker gains `deploy/migrations` — thin, since
+its three answers already exist inside `deploy.sh` and `rollback.sh` — and this
+plan's Task 2 stops trying to port logic that cannot move.
+
+---
+
 ### Task 3: The reusable workflow
 
 **Files:**

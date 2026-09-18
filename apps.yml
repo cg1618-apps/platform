@@ -1,0 +1,14 @@
+# The registry every application derives from. One entry per app.
+#
+# Adding an entry is a pull request to this repository; `bin/provision <app>`
+# then creates the database and the role. The ingress, the apex page and the
+# list of databases the backup job dumps are all generated from this file.
+apps:
+  - name: media
+    hostname: media.cg1618.com
+    port: 8000
+    database: media
+    repo: git@github.com:cg1618-apps/media.git
+    exposure: public
+    health_path: /api/health
+    description: Media tracker & database

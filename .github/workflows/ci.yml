@@ -1,0 +1,46 @@
+name: Tests
+
+# Pull requests only, and ubuntu-latest only. The self-hosted runner is a
+# machine in a house, every repository in this organisation is public, and a
+# fork's pull request running on it is the standard catastrophe. No
+# pull_request-triggered job may ever name it - in this repository or any app's.
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Runs the schema check and the policy check against the committed
+      # registry, which is what the box will later derive its ingress from.
+      - name: Validate the registry
+        run: python bin/validate_apps.py
+
+      - name: Run the tests
+        run: python -m pytest tests/ -q
+
+      - name: Lint the workflows
+        uses: raven-actions/actionlint@v2
+
+      # bin/ holds no shell scripts until the deploy scripts move here in step 4
+      # of the platform sequence. An unguarded glob fails the job on a
+      # repository that simply does not have them yet.
+      - name: Lint the shell scripts
+        run: |
+          shopt -s nullglob
+          scripts=(bin/*.sh)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo "No shell scripts yet."
+            exit 0
+          fi
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck "${scripts[@]}"

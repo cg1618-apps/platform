@@ -427,7 +427,13 @@ follows alongside it.
 4. **The reusable deploy workflow**, `bin/deploy` and `bin/provision`. After 3,
    because their shape depends on the split.
 
-Then app #2 begins, and these follow alongside it:
+**The apps are built in the order `food`, `travel`, `art`**, and the first three
+are deliberately all `public`: none of them needs a Cloudflare Access policy, so
+the contract can be proven end to end without a decision that lives outside this
+repository. `journal`, `health` and `money` come after, when the Access path is
+worth building once.
+
+Then app #2 - `food` - begins, and these follow alongside it:
 
 5. Split `CLAUDE.md` into the generic and media-specific halves, and move the
    box documentation to the platform repo.

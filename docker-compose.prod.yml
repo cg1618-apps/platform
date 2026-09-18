@@ -1,0 +1,67 @@
+# The shared half of the box: one PostgreSQL and one Cloudflare Tunnel, for
+# every application. Each app runs its own compose project holding only its own
+# service, and joins the `cg1618` network declared here.
+#
+# Run from this directory, which is where .env is loaded from:
+#
+#   docker compose -f docker-compose.prod.yml <command>
+#
+# Compose takes its project directory from the compose file's own location and
+# loads `.env` from there, so this file staying at the repository root is not
+# cosmetic: moved into a subdirectory it would look for that subdirectory's
+# .env and silently interpolate every ${...} below to an empty string.
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      cg1618:
+        # `db` is what every application already connects to, and keeping it
+        # means no app's configuration changes when its database moves here.
+        # `postgres` is the name a new app would reach for; both resolve.
+        aliases:
+          - db
+          - postgres
+    healthcheck:
+      # $$ escapes compose's own interpolation, so the shell inside the
+      # container expands these rather than compose expanding them here.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # --no-autoupdate: the image is the unit of upgrade here, and an in-place
+    # self-update would restart the tunnel outside anyone's knowledge.
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run ${TUNNEL_ID}
+    volumes:
+      # Generated from apps.yml by bin/generate_ingress.py; CI fails if the
+      # committed file and the registry disagree.
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CREDENTIALS}:/etc/cloudflared/credentials.json:ro
+    networks:
+      - cg1618
+    # No depends_on for the applications: they are separate compose projects
+    # and compose cannot order across them. cloudflared answers 502 for a
+    # hostname whose service is not up yet and recovers on its own when it is,
+    # which is the correct behaviour for one tunnel serving several apps with
+    # independent deploy cadences.
+
+volumes:
+  pgdata:
+
+networks:
+  cg1618:
+    # Named explicitly rather than left to compose's project prefix, because
+    # every application joins it by this name with `external: true`.
+    name: cg1618

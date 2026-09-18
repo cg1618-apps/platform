@@ -25,6 +25,12 @@ jobs:
       - name: Validate the registry
         run: python bin/validate_apps.py
 
+      # The ingress that will be served is a committed, generated file. This is
+      # what stops it being hand-edited into routing a hostname nobody decided
+      # to route.
+      - name: Check the generated ingress matches the registry
+        run: python bin/generate_ingress.py --check
+
       - name: Run the tests
         run: python -m pytest tests/ -q
 

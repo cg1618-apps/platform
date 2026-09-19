@@ -73,6 +73,17 @@ have; "Suspect any shape that reads as uniform" in "Rule" applies here more
 than anywhere, because copying a convention you half-remember is how two apps
 end up almost the same.
 
+**The reference is read, not right.** `media` is where a convention is looked
+up; it is not a guarantee that the convention is correct. On the day this
+section was written `media` was measurably wrong in two places the newer apps
+had already got right. So read the reference rather than the neighbours — three
+apps agreeing may be three inheritances of one decision nobody made — and **ask
+the reference why**, because what reads as a convention may be a starting point
+that was never revisited. An app that finds the reference wrong and says so is
+this section working; what it rules out is diverging *silently*. The instances
+and the mechanism are in `docs/notes/decisions.md`, "`media` is the reference
+because it is read, not because it is right".
+
 **This is about conventions, not about the stack.** "Python and PostgreSQL are
 the only guaranteed common ground" above still holds: framework, frontend,
 migration tool and build step remain each app's choice, and this section does

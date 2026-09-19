@@ -98,3 +98,26 @@ def test_it_rewrites_exactly_three_keys_and_not_the_connection_string():
     assert '"POSTGRES_PASSWORD"' in wanted
     assert '"POSTGRES_DB"' in wanted
     assert "DATABASE_URL" not in wanted
+
+
+def test_it_arms_the_deploy_approval_gate():
+    # The `production` environment is the one item of the app contract that
+    # exists only as a GitHub setting. Referencing an environment that does
+    # not exist creates it with no protection rules and runs the job, so an
+    # app nobody armed would deploy a migration unattended - with the gate
+    # present in the workflow and meaning nothing.
+    body = code()
+    assert "environments/production" in body
+    assert "reviewers[][type]=User" in body
+
+
+def test_a_missing_gh_prints_the_command_rather_than_failing():
+    # provision's job is the database. Aborting after the role, the database
+    # and the .env are written would report failure over work that succeeded,
+    # on a box that may have no gh and no login.
+    body = code()
+    assert "command -v gh" in body
+    assert "arm_env_cmd" in body
+    for line in body.splitlines():
+        if "environments/production" in line and "gh api -X PUT" in line:
+            assert not line.strip().startswith("exit"), line

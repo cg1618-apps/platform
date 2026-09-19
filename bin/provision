@@ -46,6 +46,16 @@ if match[0]["database"] is None:
 print(match[0]["database"])
 ' "${APP}")"
 
+# owner/repo, from the registry rather than from the app's name: the two are
+# the same today and the registry is what every other lookup here trusts.
+SLUG="$(python3 -c '
+import re, sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open("apps.yml"))["apps"]
+entry = [a for a in apps if a["name"] == name][0]
+print(re.sub(r"^git@github\.com:|\.git$", "", entry["repo"]))
+' "${APP}")"
+
 # Apps are cloned beside this repository on a development machine and are
 # wherever they are on the box - the media tracker predates the layout and
 # lives at ~/anime_site - so the path is resolvable but overridable.
@@ -118,6 +128,45 @@ PY
 chmod 600 "${ENV_FILE}"
 
 echo "wrote POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB into ${ENV_FILE}"
+echo
+
+# The `production` environment, with the owner as a required reviewer. This is
+# the approval gate the deploy workflow's migration lane waits at, and it is
+# the one part of the app contract that exists ONLY as a GitHub setting - no
+# file in either repository creates it. Referencing an environment that does
+# not exist does not fail: GitHub makes it on first use with no protection
+# rules and runs the job. So a provisioned app is gated by construction here,
+# rather than by somebody remembering a checkbox; .github/workflows/deploy-app.yml
+# refuses the deploy if this was never done.
+#
+# Printing rather than failing when `gh` cannot do it. provision's job is the
+# database, this box may have no `gh` and no login, and aborting here would
+# leave an app with a database, a role and a written .env and report failure.
+# The command is exact so the owner can paste it from a machine that is
+# logged in.
+arm_env_cmd() {
+    echo "  gh api -X PUT repos/${SLUG}/environments/production \\"
+    echo "    -f 'prevent_self_review=false' \\"
+    echo "    -F 'reviewers[][type]=User' -F \"reviewers[][id]=\$(gh api user --jq .id)\""
+}
+
+echo "==> Arming the deploy approval gate on ${SLUG}"
+if ! command -v gh >/dev/null 2>&1; then
+    echo "    gh is not installed here. Run this from a machine that has it:"
+    arm_env_cmd
+elif ! reviewer_id="$(gh api user --jq .id 2>/dev/null)" || [ -z "${reviewer_id}" ]; then
+    echo "    gh is not logged in here. Run this from a machine that is:"
+    arm_env_cmd
+elif gh api -X PUT "repos/${SLUG}/environments/production" \
+        -f 'prevent_self_review=false' \
+        -F 'reviewers[][type]=User' -F "reviewers[][id]=${reviewer_id}" \
+        >/dev/null; then
+    echo "    ${SLUG} environment 'production' now requires a reviewer."
+else
+    echo "    Could not arm it - the token may not administer ${SLUG}. Run:"
+    arm_env_cmd
+fi
+
 echo
 echo "The app still has to be restarted to pick them up, and DATABASE_URL in"
 echo "that file - if it sets one - is NOT rewritten: it is the app's own shape"

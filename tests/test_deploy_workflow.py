@@ -38,9 +38,14 @@ def workflow() -> dict:
     return load(DEPLOY_APP)
 
 
+# The jobs that run on the box. Everything else - `classify`, `verify-gate` -
+# decides on GitHub whether they may.
+DECIDERS = {"classify", "verify-gate"}
+
+
 def deploy_jobs(wf: dict) -> dict:
-    """The two lanes: every job that is not `classify`."""
-    return {name: job for name, job in wf["jobs"].items() if name != "classify"}
+    """The two lanes: every job that runs on the box."""
+    return {name: job for name, job in wf["jobs"].items() if name not in DECIDERS}
 
 
 def run_steps(job: dict) -> list[dict]:
@@ -137,8 +142,9 @@ def test_there_are_exactly_two_lanes_and_they_are_mutually_exclusive():
     wf = workflow()
     lanes = deploy_jobs(wf)
     assert set(lanes) == {"deploy", "deploy-migration"}
-    for job in lanes.values():
-        assert job["needs"] == "classify"
+    for name, job in lanes.items():
+        needs = job["needs"]
+        assert "classify" in ([needs] if isinstance(needs, str) else needs), name
     assert lanes["deploy"]["if"] == "needs.classify.outputs.migration == 'false'"
     assert (
         lanes["deploy-migration"]["if"] == "needs.classify.outputs.migration == 'true'"
@@ -154,6 +160,32 @@ def test_the_migration_lane_waits_for_the_owner():
     # And the other lane must NOT have it, or every deploy needs a tap and the
     # approval stops meaning anything.
     assert "environment" not in wf["jobs"]["deploy"]
+
+
+def test_the_migration_lane_will_not_run_until_the_gate_is_proven_to_exist():
+    # `environment: production` is not self-enforcing: referencing an
+    # environment that does not exist creates it, with no protection rules,
+    # and runs the job. So the gate is only real if something CHECKS that the
+    # environment has a required reviewer - and that check has to be its own
+    # job, because a step inside deploy-migration runs after the approval and
+    # could only ever verify a gate that already worked.
+    wf = workflow()
+    needs = wf["jobs"]["deploy-migration"]["needs"]
+    assert "verify-gate" in needs, needs
+
+    gate = wf["jobs"]["verify-gate"]
+    # On GitHub, and without the environment itself - a gate job that waited
+    # at the gate it is checking is no gate.
+    assert gate["runs-on"] == "ubuntu-latest"
+    assert "environment" not in gate
+    # Only when a migration is actually being deployed; otherwise every
+    # ordinary deploy of every app would need the environment configured.
+    assert gate["if"] == "needs.classify.outputs.migration == 'true'"
+
+    body = "\n".join(step["run"] for step in run_steps(gate))
+    assert "environments/production" in body
+    assert "required_reviewers" in body
+    assert "exit 1" in body
 
 
 def test_the_approval_travels_to_the_box():

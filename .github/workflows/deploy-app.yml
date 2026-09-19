@@ -226,8 +226,55 @@ jobs:
           fi
           ./bin/rollback "${args[@]}"
 
-  # Identical steps, one difference: `environment: production` carries a
-  # required reviewer, so this job waits for the owner before it runs.
+  # Does the gate actually exist? `environment: production` on the job below
+  # is the whole approval gate, and referencing an environment that does not
+  # exist DOES NOT FAIL: GitHub creates it on first use, with zero protection
+  # rules, and the job runs immediately. Nothing in an app's repository
+  # declares the environment, so an app whose owner never configured it would
+  # deploy a migration unattended, in a green run, with the gate nominally
+  # present in this file.
+  #
+  # The second layer cannot catch that either: the job below sets
+  # MIGRATION_APPROVED unconditionally, so bin/deploy's re-check on the box is
+  # satisfied by the same run that skipped the approval.
+  #
+  # A SEPARATE JOB, not a step inside deploy-migration. A step there runs
+  # AFTER the approval, so it could only ever verify a gate that already
+  # worked - and would say nothing in the one case this exists for, where
+  # there was no gate to wait at.
+  #
+  # `contents: read` is what a public repository needs to read its own
+  # environments. If the API answers 403 on a repository where that is not
+  # enough, add `administration: read` here.
+  verify-gate:
+    needs: classify
+    if: needs.classify.outputs.migration == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: The production environment must have a required reviewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rules="$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
+                     --jq '[.protection_rules[].type] | join(",")')"
+          case ",${rules}," in
+            *,required_reviewers,*)
+              echo "gate is armed: ${rules}"
+              ;;
+            *)
+              echo "::error::production has no required reviewers; refusing to deploy a migration"
+              exit 1
+              ;;
+          esac
+
+  # Identical steps to the ungated lane, one difference: `environment:
+  # production` carries a required reviewer, so this job waits for the owner
+  # before it runs - and verify-gate above has already proven that reviewer
+  # exists, because an unconfigured environment gates nothing while looking
+  # exactly like one that does.
   #
   # The gate exists because a migration is the only class of change that can
   # destroy data, and because reversing a migration is not a restore - undoing
@@ -235,7 +282,7 @@ jobs:
   # bin/deploy's own re-check looks for, so the approval travels to the box
   # rather than living only in GitHub's audit log.
   deploy-migration:
-    needs: classify
+    needs: [classify, verify-gate]
     if: needs.classify.outputs.migration == 'true'
     runs-on: ${{ fromJSON(inputs.runs_on) }}
     environment: production

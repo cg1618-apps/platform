@@ -216,6 +216,22 @@ stopping the container stops all of them.
      the name.
    - **`DATABASE_URL` from the environment**, and a `main` branch that is
      production.
+   - **A `production` environment in the app's repository, with the owner as a
+     required reviewer.** This is the approval gate the deploy workflow's
+     migration lane waits at, and it is the only item of the contract that
+     exists nowhere in either repository's files. Referencing an environment
+     that does not exist **does not fail**: GitHub creates it on first use,
+     with no protection rules, and runs the job immediately — so an app that
+     skipped this would deploy a schema migration unattended, in a green run,
+     with the gate present in the workflow and meaning nothing.
+
+     `bin/provision` arms it (`gh api -X PUT
+     repos/cg1618-apps/<app>/environments/production`, the owner as reviewer),
+     and prints the command rather than failing when `gh` is missing or not
+     logged in on the box. The workflow's `verify-gate` job asks the API
+     whether the environment really has required reviewers and refuses the
+     deploy when it does not, so an app that was never armed fails loudly
+     instead of deploying.
    - **An executable `deploy/migrations` if — and only if — its `apps.yml`
      entry says `migrations: true`.** The two must agree: `bin/deploy` refuses
      when the registry declares migrations and no runnable hook is there, and

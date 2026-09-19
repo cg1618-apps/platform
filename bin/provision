@@ -91,6 +91,29 @@ fi
     exit 1
 }
 
+# The box's checkout of an app must be on main, because that is what
+# bin/deploy pulls and what the Deploy workflow triggers on. A plain
+# `git clone` does NOT give you main: it checks out the repository's DEFAULT
+# branch, which here is dev.
+#
+# Nothing notices until a deploy, and by then it has cost a production
+# approval: bin/deploy refuses with "On 'dev', not main" AFTER the reviewer
+# has approved the run. food's first deploy died exactly there. Provisioning
+# is the moment this is cheap to see, so it is checked here.
+#
+# Only when the checkout is the one derived above. An --env-file pointing
+# somewhere else says the caller knows where things are.
+if [ -n "${APP_DIR:-}" ] && [ -d "${APP_DIR}/.git" ]; then
+    branch="$(git -C "${APP_DIR}" rev-parse --abbrev-ref HEAD)"
+    if [ "${branch}" != "main" ]; then
+        echo "${APP_DIR} is on '${branch}', not main." >&2
+        echo "A deploy from that checkout is refused after the approval gate," >&2
+        echo "which is the expensive place to find out. Fix it with:" >&2
+        echo "  git -C ${APP_DIR} checkout main && git -C ${APP_DIR} pull --ff-only" >&2
+        exit 1
+    fi
+fi
+
 # env -u COMPOSE_PROJECT_NAME: harmless here, load-bearing everywhere this
 # pattern is copied. A script that has sourced an app's .env has that variable
 # exported, and it beats the .env beside this compose file.

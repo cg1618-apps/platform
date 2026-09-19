@@ -410,3 +410,40 @@ runner**, here or in any application repository: every repository in this
 organisation is public, the runner is a machine in a house, and a fork's pull
 request executing on it is the standard catastrophe. It is the single most
 important line to review in a new app's deploy workflow.
+
+## How a deploy runs
+
+A merge to an app's `main` triggers its `deploy.yml`, which calls the
+platform's reusable workflow. The workflow classifies the push and picks one
+of two lanes:
+
+- **Ungated** — the push adds no migration. It deploys immediately, with no
+  approval.
+- **Gated** — the push adds one or more revision files. It waits for the
+  owner's approval in the `production` environment first, and a separate
+  `verify-gate` job asks the API whether that environment really has required
+  reviewers. An environment that was never armed is created silently with zero
+  protection rules, which looks identical to a working gate.
+
+The classification is re-checked on the box against its own `HEAD`, because a
+runner that was offline across two merges sees a push range that misses the
+earlier one.
+
+### Exit codes, and the difference between them is load-bearing
+
+`bin/deploy` exits:
+
+| code | meaning | what the workflow does |
+| --- | --- | --- |
+| 0 | deployed and healthy | nothing |
+| 1 | **refused to start** — wrong branch, no `.env`, an unapproved migration, a registry and repository that disagree | nothing. Production was never touched and is still serving |
+| 2 | the deploy **ran** and the result is unhealthy | `bin/rollback` |
+
+`if: failure()` alone cannot tell 1 from 2, and rolling back an exit 1 would
+take a working site down to recover from nothing. The workflow captures the
+code and gates the rollback on `rc == 2`.
+
+`bin/rollback` does not exit 2. When it cannot proceed safely it **freezes**:
+it stops, prints the dump path, both recorded revisions and the manual
+procedure, and leaves the box as it is. A rollback that half-succeeds is worse
+than one that stops.

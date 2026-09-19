@@ -39,6 +39,12 @@ jobs:
       - name: Run the tests
         run: python -m pytest tests/ -q
 
+      # Pinned in requirements-dev.txt rather than floating: ruff's default
+      # rule set changes between releases, so an unpinned lint step fails a
+      # pull request that changed nothing about the code.
+      - name: Lint
+        run: ruff check .
+
       - name: Lint the workflows
         uses: raven-actions/actionlint@v2
 

@@ -285,9 +285,14 @@ echo "==> Building and starting"
 "${COMPOSE[@]}" up -d --build
 
 echo "==> Pruning dumps, keeping ${KEEP}"
+# `|| true`, because this sits under the ERR trap armed at the pull. Deleting
+# old dumps is housekeeping: it cannot make a running deploy unhealthy, and a
+# failing `ls` under `pipefail` must not be able to report "unhealthy, roll
+# back" over it. The deploy's health is what bin/health says it is.
 # shellcheck disable=SC2012
 ls -1t "${BACKUP_DIR}"/pre-deploy-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) \
-    | while read -r old; do rm -f "${old}" "${old}.revision" "${old}.migration"; done
+    | while read -r old; do rm -f "${old}" "${old}.revision" "${old}.migration"; done \
+    || true
 
 "${COMPOSE[@]}" ps
 

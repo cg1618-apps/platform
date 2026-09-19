@@ -96,8 +96,14 @@ freeze() {
 # The newest pre-deploy dump is the one this deploy took. bin/deploy writes the
 # git revision beside it, and - where the app has migrations - the revision the
 # DATABASE was at, read from the database itself.
+# `|| true`, and it is what makes the freeze below reachable at all. Under
+# `set -e` with `pipefail` the assignment itself fails when the glob matches
+# nothing, so the script exited 2 here - silently, before the check beneath it
+# ran. The safety net for the worst case, wanting a rollback with nothing to
+# roll back to, had never once been reached. "No dump exists" is an answer this
+# script must be able to act on, not a reason to stop reading.
 # shellcheck disable=SC2012  # ls -t is the intent; filenames here are stamps
-dump="$(ls -1t "${BACKUP_DIR}"/pre-deploy-*.dump 2>/dev/null | head -1)"
+dump="$(ls -1t "${BACKUP_DIR}"/pre-deploy-*.dump 2>/dev/null | head -1 || true)"
 if [ -z "${dump}" ]; then
     echo "No pre-deploy dump found in ${BACKUP_DIR}." >&2
     freeze

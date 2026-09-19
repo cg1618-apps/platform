@@ -487,6 +487,36 @@ def test_a_second_app_argument_is_refused():
 # --- rollback leaves nothing half-done --------------------------------------
 
 
+def test_the_missing_dump_freeze_is_reachable():
+    """The assignment that finds the dump must not be able to abort the script.
+
+    Under `set -e` with `pipefail`, `dump="$(ls ... | head -1)"` fails when the
+    glob matches nothing, so bin/rollback exited 2 before the `[ -z ]` check
+    beneath it ever ran. The freeze for the worst case - a rollback wanted with
+    nothing to roll back to - had never been reachable.
+
+    Same family as the `added` masking: a failure being taken for an answer,
+    except this one is taken for no answer at all.
+    """
+    body = code(ROLLBACK)
+    line = command_lines(ROLLBACK, "pre-deploy-*.dump")[0]
+    assert "|| true" in line, line
+    # And the check it exists to reach is still below it, and still freezes.
+    assert body.index("pre-deploy-*.dump") < body.index('[ -z "${dump}" ]')
+    guard = body[body.index('[ -z "${dump}" ]') :]
+    assert "freeze" in guard.split("fi")[0]
+
+
+def test_the_prune_cannot_trigger_a_rollback():
+    # It sits under the ERR trap armed at the pull, so a failing `ls` under
+    # pipefail would report "unhealthy, roll back" for housekeeping that has
+    # nothing to do with whether the deploy is serving.
+    body = code(DEPLOY)
+    prune = body[body.index("tail -n +$((KEEP + 1))") :]
+    assert "|| true" in prune.split("\n\n")[0], prune.split("\n\n")[0]
+    assert body.index("trap 'exit 2' ERR") < body.index("tail -n +$((KEEP + 1))")
+
+
 def test_the_image_swap_freezes_on_failure():
     # A failure between the checkout and the tag leaves the app half-reverted,
     # and the bare form exited 1 without naming the dump a person then needs.

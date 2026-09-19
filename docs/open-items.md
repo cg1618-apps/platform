@@ -141,3 +141,37 @@ Recovered from a working report left by the step-4 deploy-pipeline round,
 which was never in git and has been deleted. Its two other unverified claims —
 SC2088 on the `bin/` scripts and the workflow parsing under `actionlint` — are
 closed: `ci.yml` runs both on every pull request and has been green since.
+
+## `art`'s first hand-named migration, and why three baselines are not evidence
+
+`CLAUDE.md`'s "House style" already settles this — migration naming is one of
+the conventions `media` is the reference for. What is open is that the evidence
+on disk points the other way, and it has already misled two sessions in one
+day.
+
+`media` has nine revisions and every one is a mnemonic id:
+`al1n2ilist_anilist_score_columns`, `s1r2rootflag_rename_is_superuser`,
+`g1c2f3flags4_game_completion_vocabulary`. Not a sequential number among them.
+
+`food`, `travel` and `art` each carry `0001_baseline.py`. **All three inherited
+it from the same app skeleton, so it is one decision appearing three times, not
+three apps agreeing.** Read as a pattern it is the most convincing wrong signal
+in the repository: three of four apps, unanimous, and false.
+
+It has already cost twice. `travel` named `0002_packing` by hand, following its
+own baseline, and renamed it to `p1acking0001` once it read `media` — safely,
+because the revision had never been released and the local database was
+downgraded first, so no version row was stranded. The platform session nearly
+flagged `food` for breaking the convention `food` was in fact the only new app
+following, having read `media` rather than its neighbours.
+
+**`art` is the one app where this is still ahead.** It has only the skeleton
+baseline, so its first hand-named revision has not been written, and no session
+is working on it. Whoever writes it should read `media/alembic/versions/`
+first — the actual directory, not the pattern the other apps establish.
+
+Renaming the three inherited baselines is **not** proposed. They are released
+and applied, and a revision id that has been applied cannot be renamed without
+stranding the row that records it; that is why the rule is reparent, never
+renumber. The baselines stay, and what is written down is that they are
+inherited rather than chosen.

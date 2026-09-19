@@ -45,6 +45,32 @@ contract in `docs/registry.md` exists to keep honest — and `art`'s stopwatch i
 the feature most likely to want a different shape from the rest, so it is the
 one to decide deliberately rather than by inheritance.
 
+## Verifying a file's mode
+
+**`git ls-files` reads the index. `git ls-tree HEAD` reads the commit.** Only the
+second one says what ships.
+
+This matters because `core.fileMode` is false on the development machines, so
+the executable bit is never picked up from disk and must be set explicitly with
+`git update-index --chmod=+x <path>`. Worse, `git commit -- <pathspec>`
+re-diffs the named files against the working tree and can silently reset the
+mode it just gained.
+
+That combination has produced the same defect three times in two days — a
+deploy script committed non-executable, which fails on the box with `Permission
+denied` and nowhere else. Twice the check that was supposed to catch it was
+`git ls-files`, which showed `100755` from the index while the commit held
+`100644`.
+
+So: set the bit, commit, then verify with
+
+```bash
+git ls-tree HEAD -- <path>     # the only check that answers the question
+```
+
+An app's CI should also assert it, since a human verifying by hand is the part
+that keeps failing.
+
 ## Subagents
 
 **Use them by default.** A task that can be described completely in writing and

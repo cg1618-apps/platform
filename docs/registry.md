@@ -119,6 +119,22 @@ Cloudflare into code.** The app's own visibility checks must already work
 before that change lands — and be tested for *refusal*, with fixtures that make
 refusal possible, because a check over an empty set passes without ever firing.
 
+## What an app's CI needs
+
+An app whose tests touch PostgreSQL — which is any app with a from-zero
+migration test — needs a **service container in its workflow**, and a job-level
+`env:` block to go with it. `ubuntu-latest` has PostgreSQL installed but not
+running, and the runner has no `.env`, so without both the app's defaults apply
+and authentication fails even once the service is up. The symptom is a required
+check that can never go green, discovered on the first pull request.
+
+`cg1618-apps/travel`'s workflow is the worked example.
+
+Two more steps belong there for the same reason — they guard things a deploy
+would otherwise discover: building the frontend (a bundle that does not compile
+should fail the pull request, not the deploy) and `shellcheck` on any shell the
+app ships.
+
 ## Development ports
 
 Every app must be runnable at the same time on one laptop, so the ports are

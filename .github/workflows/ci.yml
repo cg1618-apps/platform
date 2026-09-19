@@ -128,7 +128,7 @@ jobs:
           diff apex/html/index.html /tmp/served.html
 
           # nginx parsed the mounted config and answers its own health probe.
-          for i in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-apex-1)"
             [ "${status}" = "healthy" ] && break
             echo "apex: ${status}"

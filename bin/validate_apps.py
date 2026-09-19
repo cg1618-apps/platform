@@ -42,6 +42,14 @@ SCHEMA = ROOT / "schema" / "apps.schema.json"
 # before the ingress rule exists, not after it has been serving.
 NEVER_PUBLIC = ("journal", "health", "money")
 
+# The schema reserves 8000-8099. Apps take the bottom of that block and every
+# worktree allocates from WORKTREE_FLOOR upward, because a worktree needs a
+# port no app entry can ever claim - see docs/dev-ports.md. Registering an app
+# at or above the floor would put it in the band worktrees hand out, and the
+# collision surfaces as somebody else's app failing to bind hours later, with
+# nothing pointing back at the worktree that took it.
+WORKTREE_FLOOR = 8050
+
 
 def validate(registry: dict) -> list[str]:
     """Return one message per policy violation; empty means clean."""
@@ -85,6 +93,13 @@ def validate(registry: dict) -> list[str]:
                     f"is exposure 'cloudflare-access', not a public app with a "
                     f"prefix"
                 )
+
+        if a["port"] >= WORKTREE_FLOOR:
+            problems.append(
+                f"{a['name']} claims port {a['port']}; apps keep below "
+                f"{WORKTREE_FLOOR} and worktrees allocate from there upward, "
+                f"so this port is one a worktree may already be using"
+            )
 
         expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
         if a["repo"] != expected_repo:

@@ -188,3 +188,26 @@ def test_a_deep_path_is_not_refused():
     # being short or shallow.
     registry = {"apps": [app(gated_paths=["/api"])]}
     assert validate(registry) == []
+
+
+# Apps keep the bottom of the reserved 8000-8099 block; worktrees allocate from
+# WORKTREE_FLOOR upward. The registry cannot see a worktree, so this is the only
+# side of that contract it can hold - and it holds it for an app that does not
+# exist yet, which is the only moment the rule is cheap.
+
+
+def test_an_app_may_not_register_in_the_worktree_band():
+    registry = {"apps": [app(port=8050)]}
+    assert any("8050" in p for p in validate(registry))
+
+
+def test_an_app_well_inside_the_worktree_band_is_refused():
+    registry = {"apps": [app(port=8091)]}
+    assert any("worktree" in p for p in validate(registry))
+
+
+def test_the_port_just_below_the_floor_is_allowed():
+    # The mirror: the rule is a floor, not a dislike of high ports. Without
+    # this, narrowing the band to nothing would still pass the two above.
+    registry = {"apps": [app(port=8049)]}
+    assert validate(registry) == []

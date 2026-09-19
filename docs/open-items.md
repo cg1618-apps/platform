@@ -102,9 +102,15 @@ is right. It also declares three apps short the moment it was written:
 | App | Markdown pages under `docs/` |
 | --- | --- |
 | `media` | 34 |
+| `food` | `README.md`, `api.md`, `data-model.md`, `deployment.md`, `frontend.md`, `testing.md`, `notes/` |
 | `travel` | 4 (`README.md`, `notes/`, and live `superpowers/` scaffolding) |
-| `food` | 2 (`README.md`, `notes/`) |
 | `art` | 2 (`README.md`, `notes/`) |
+
+**`food` has largely answered this for itself**, and the answer settles the
+open question below in favour of pages-on-demand: every one of those pages was
+written with the behaviour it describes, in the same commit, and none of them
+is a stub asserting nothing. `travel` and `art` are where the question is still
+open.
 
 **This is mostly not a backlog of unwritten pages.** `food`, `travel` and `art`
 have almost no behaviour yet, and a page describing features that do not exist
@@ -313,8 +319,16 @@ Tier 3 freezes and tells the operator:
 ```
 
 `media` has them — `deploy/README.md`, plus `docs/deployment-selfhost.md`.
-**`food`, `travel` and `art` have none**: their `deploy/` holds only the hook
-(and `food`'s `gated-paths`), and neither has a deployment page under `docs/`.
+**`travel` and `art` have none**: their `deploy/` holds only the hook, and
+neither has a deployment page under `docs/`.
+
+`food` has closed its half — `food/docs/deployment.md`, 107 lines, verified
+against what `bin/deploy` and `bin/rollback` actually print rather than written
+from memory. **Copy that page rather than starting from this list**, and take
+its closing rule with it: *if what the freeze prints and what the page lists
+ever disagree, believe the box.* A page describing paths is a second copy of
+something the script already knows, and which copy goes stale is the question
+this repository spent a day answering.
 
 So at the worst moment the platform produces — production frozen mid-rollback,
 a human deciding whether to restore a dump — the script points three of four

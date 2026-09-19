@@ -28,6 +28,10 @@ ingress:
   # authentication in front of this rule.
   - hostname: travel.cg1618.com
     service: http://travel-app:8002
+  # art: cloudflare-access - Cloudflare enforces
+  # authentication in front of this rule.
+  - hostname: art.cg1618.com
+    service: http://art-app:8003
 
   # Required catch-all. cloudflared refuses to start without it, and it must be
   # the last rule.

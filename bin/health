@@ -60,13 +60,27 @@ apps = yaml.safe_load(open(sys.argv[2]))["apps"]
 match = [a for a in apps if a["name"] == name]
 if not match:
     sys.exit(f"{name} is not in apps.yml")
-print(match[0]["port"], match[0]["health_path"])
+print(match[0]["port"], match[0]["health_path"], match[0].get("path", "-"))
 ' "${APP}" "${PLATFORM_DIR}/apps.yml")"
-read -r PORT HEALTH_PATH <<<"${registry}"
+read -r PORT HEALTH_PATH REG_PATH <<<"${registry}"
 
-# Apps are cloned beside the platform repository on a development machine and
-# are wherever they are on the box - the media tracker predates the layout and
-# lives at ~/anime_site - so the path is resolvable but overridable.
+# Where the checkout is, in precedence order: --app-dir on the command line,
+# the registry's optional `path`, then <apps dir>/<name>. The path used to be
+# a caller-supplied workflow input, which let a deploy name one app and point
+# at another's checkout - the database came from the registry and the code did
+# not, so the dump and the thing deployed were different apps. It is
+# registry-derived now, like everything else this script acts on.
+#
+# "-" is the registry's "absent". `path` forbids whitespace in the schema, so
+# the lookup's fields can be word-split, and "-" is not a legal value under it.
+if [ -z "${APP_DIR}" ] && [ "${REG_PATH}" != "-" ]; then
+    # A leading ~/ is the registry's spelling of $HOME. The shell does not
+    # expand a tilde that arrives inside a variable, so it is done here.
+    case "${REG_PATH}" in
+        "~/"*) APP_DIR="${HOME}/${REG_PATH#\~/}" ;;
+        *)     APP_DIR="${REG_PATH}" ;;
+    esac
+fi
 APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
 [ -f "${APP_DIR}/docker-compose.prod.yml" ] || {
     echo "No ${APP_DIR}/docker-compose.prod.yml. Pass --app-dir if this app's checkout is elsewhere." >&2

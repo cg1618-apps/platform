@@ -20,6 +20,7 @@ apps:
     health_path: /api/health
     migrations: true         # does this app ship deploy/migrations?
     description: Media tracker & database
+    path: "~/anime_site"     # optional; only when the checkout is not <apps dir>/<name>
 ```
 
 `status` separates a **claim** from a **running service**. An entry reserves the
@@ -27,6 +28,20 @@ hostname, the port and the database name the moment an app is planned — which 
 what stops a second app taking them — but only a `live` app is routed by the
 tunnel and linked from the apex page. Routing a planned app would publish a
 hostname that answers 502, which is worse than one that does not resolve.
+
+`path` is **optional and almost always absent**: a checkout lives at
+`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>` — unless it does not, and
+`media` is the one that does not, because it predates the layout and sits at
+`~/anime_site`. A leading `~/` means `$HOME`; anything else must be absolute,
+and the schema forbids whitespace in the value.
+
+It lives here rather than being passed in because **everything else the deploy
+scripts act on is registry-derived**. It was a workflow input once, and a
+caller could then name `travel` and hand it media's checkout: the database name
+came from the registry and the code came from the input, so `bin/deploy` would
+dump one app and deploy another. One source cannot disagree with itself.
+`--app-dir` still exists on all three scripts for running them by hand against
+a checkout the registry knows nothing about.
 
 `health_path` is declared rather than assumed because the applications do not
 share a stack. `/api/health` is the media tracker's answer — it opens a real
@@ -296,10 +311,9 @@ stopping the container stops all of them.
      `app:` is the name spelled exactly as this file spells it; everything
      else — the classify job, the approval gate, the per-app concurrency
      group, the exit-2-only rollback — lives in the reusable workflow and is
-     not an app's to restate. Two optional inputs exist, for one situation
-     each: `runs_on`, a JSON array of runner labels, and `app_dir`, the
-     app's checkout path on the box when it is not `${HOME}/<app>` (the media
-     tracker's is `~/anime_site`).
+     not an app's to restate. One optional input exists, `runs_on`, a JSON
+     array of runner labels. A checkout that is not at `<apps dir>/<name>` is
+     the registry's `path:` key, not a caller's input — see above.
 
      **The app's workflow must not name the self-hosted runner itself**, and
      must not carry a `pull_request` trigger anywhere near this job. The

@@ -523,3 +523,28 @@ def test_the_image_swap_freezes_on_failure():
     for needle in ('git checkout --quiet "${previous_rev}"', "docker tag"):
         for line in command_lines(ROLLBACK, needle):
             assert "|| freeze" in line, line
+
+
+def test_the_checkout_path_comes_from_the_registry_not_from_a_caller():
+    # It was a workflow input once, and a caller could then name one app and
+    # hand it another's checkout: the database name came from the registry and
+    # the code came from the input, so bin/deploy would dump one app and
+    # deploy another. Everything these scripts act on is registry-derived now.
+    for script in SCRIPTS:
+        body = code(script)
+        assert '"path"' in body, script
+        assert 'REG_PATH' in body, script
+        # --app-dir still wins, for running these by hand against a checkout
+        # the registry knows nothing about.
+        assert body.index("--app-dir") < body.index('[ -z "${APP_DIR}" ]'), script
+
+
+def test_a_home_relative_registry_path_is_expanded():
+    # The shell does not expand a tilde that arrives inside a variable, so a
+    # literal "~/anime_site" would become a directory called "~" beside the
+    # runner's cwd - and the checkout guard would then say "no checkout at
+    # ~/anime_site", which is exactly what the registry says there is.
+    for script in SCRIPTS:
+        body = code(script)
+        assert '"~/"*)' in body, script
+        assert r'${HOME}/${REG_PATH#\~/}' in body, script

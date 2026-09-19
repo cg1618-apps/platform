@@ -33,13 +33,6 @@ on:
         required: false
         type: string
         default: '["self-hosted", "homelab"]'
-      app_dir:
-        description: >-
-          The app's checkout on the box, when it is not ${HOME}/<app>. The
-          media tracker predates the layout and lives at ~/anime_site.
-        required: false
-        type: string
-        default: ""
 
 concurrency:
   # Per app, not global: two apps deploying at once touch different databases,
@@ -194,15 +187,10 @@ jobs:
         id: deploy
         env:
           APP: ${{ inputs.app }}
-          APP_DIR: ${{ inputs.app_dir }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          args=("${APP}" --ci)
-          if [ -n "${APP_DIR}" ]; then
-            args+=(--app-dir "${APP_DIR}")
-          fi
           rc=0
-          ./bin/deploy "${args[@]}" || rc=$?
+          ./bin/deploy "${APP}" --ci || rc=$?
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
           exit "${rc}"
 
@@ -217,14 +205,9 @@ jobs:
         if: failure() && steps.deploy.outputs.rc == '2'
         env:
           APP: ${{ inputs.app }}
-          APP_DIR: ${{ inputs.app_dir }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          args=("${APP}")
-          if [ -n "${APP_DIR}" ]; then
-            args+=(--app-dir "${APP_DIR}")
-          fi
-          ./bin/rollback "${args[@]}"
+          ./bin/rollback "${APP}"
 
   # Does the gate actually exist? `environment: production` on the job below
   # is the whole approval gate, and referencing an environment that does not
@@ -291,16 +274,11 @@ jobs:
         id: deploy
         env:
           APP: ${{ inputs.app }}
-          APP_DIR: ${{ inputs.app_dir }}
           MIGRATION_APPROVED: "1"
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          args=("${APP}" --ci)
-          if [ -n "${APP_DIR}" ]; then
-            args+=(--app-dir "${APP_DIR}")
-          fi
           rc=0
-          ./bin/deploy "${args[@]}" || rc=$?
+          ./bin/deploy "${APP}" --ci || rc=$?
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
           exit "${rc}"
 
@@ -311,11 +289,6 @@ jobs:
         if: failure() && steps.deploy.outputs.rc == '2'
         env:
           APP: ${{ inputs.app }}
-          APP_DIR: ${{ inputs.app_dir }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          args=("${APP}")
-          if [ -n "${APP_DIR}" ]; then
-            args+=(--app-dir "${APP_DIR}")
-          fi
-          ./bin/rollback "${args[@]}"
+          ./bin/rollback "${APP}"

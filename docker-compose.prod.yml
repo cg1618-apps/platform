@@ -43,15 +43,22 @@ services:
     restart: unless-stopped
     # --no-autoupdate: the image is the unit of upgrade here, and an in-place
     # self-update would restart the tunnel outside anyone's knowledge.
-    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run ${TUNNEL_ID}
+    command: tunnel --no-autoupdate --config /etc/cloudflared/conf/config.yml run ${TUNNEL_ID}
     volumes:
       # Generated from apps.yml by bin/generate_ingress.py; CI fails if the
       # committed file and the registry disagree.
+      #
       # The directory, not the file - see the apex service below for why a
-      # single-file mount serves stale content after a git pull. The
-      # credentials mount nests inside this one, which docker resolves by
-      # depth, so it still lands on top.
-      - ./cloudflared:/etc/cloudflared:ro
+      # single-file mount serves stale content after a git pull.
+      #
+      # A SIBLING of the credentials mount, not its parent. Mounting this
+      # directory at /etc/cloudflared directly meant runc had to create the
+      # credentials mountpoint INSIDE a read-only mount, which it cannot do:
+      # the container failed to start with "read-only file system" and the
+      # tunnel - every hostname on this box - went down with it. Nesting
+      # would also require the mountpoint to exist in this directory, and
+      # that file is a credential that is never committed.
+      - ./cloudflared:/etc/cloudflared/conf:ro
       - ${CLOUDFLARED_CREDENTIALS}:/etc/cloudflared/credentials.json:ro
     networks:
       - cg1618

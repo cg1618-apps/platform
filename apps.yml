@@ -40,7 +40,7 @@ apps:
     # and a guard that has to be deleted to allow an intended change is a speed
     # bump, not a protection.
     exposure: cloudflare-access
-    health_path: /health
+    health_path: /api/health
     status: planned
     description: Packing and buying lists, transport information, and the current trip
 

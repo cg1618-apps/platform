@@ -119,6 +119,47 @@ Cloudflare into code.** The app's own visibility checks must already work
 before that change lands — and be tested for *refusal*, with fixtures that make
 refusal possible, because a check over an empty set passes without ever firing.
 
+## Development ports
+
+Every app must be runnable at the same time on one laptop, so the ports are
+derived rather than remembered:
+
+**uvicorn = the app's registry port. Vite = 5173 + (port − 8000).**
+
+| App | uvicorn | Vite |
+| --- | --- | --- |
+| `media` | 8000 | 5173 |
+| `food` | 8001 | 5174 |
+| `travel` | 8002 | 5175 |
+| `art` | 8003 | 5176 |
+
+`media` keeps the ports it has always had, which is what the rule was fitted
+to. Two things each app's dev setup must do, because the failure modes are
+quiet:
+
+- **Refuse to start when its port is taken**, rather than falling back to the
+  next one. A dev server that quietly takes 5176 has taken `art`'s slot, and
+  two apps then fight over one port with nothing saying so. Vite needs
+  `strictPort: true`; uvicorn needs the launcher to check first.
+- **Proxy `/api` to its own uvicorn port**, not to 8000. A copied config that
+  still points at `media` returns another app's data, which looks like a bug in
+  this one.
+
+## Development databases
+
+One PostgreSQL container on the laptop — the existing one — with **one database
+per app**, named after the app. That mirrors production, where one container
+holds one database per app, and it avoids running four containers to develop
+four applications.
+
+```bash
+docker exec anime_site_postgres_db createdb -U postgres travel
+```
+
+The consequence to respect is the same one production has: a migration run in
+one app's tree cannot affect another's database, but they share a server, so
+stopping the container stops all of them.
+
 ## Adding an application
 
 1. A pull request to this repository adding its `apps.yml` entry, with

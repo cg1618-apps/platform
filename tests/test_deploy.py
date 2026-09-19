@@ -780,3 +780,64 @@ def test_no_bind_mount_contains_another():
                 assert not inner.startswith(outer.rstrip("/") + "/"), (
                     f"{service}: {outer} contains {inner}; mount them as siblings"
                 )
+
+
+# --- declared exposure versus real exposure ---------------------------------
+
+CHECK_EXPOSURE = ROOT / "bin" / "check-exposure"
+
+
+def test_check_exposure_asks_the_open_internet():
+    """The registry's `exposure:` is intent; Cloudflare Access is elsewhere.
+
+    Nothing connected the two, and art.cg1618.com served an unauthenticated
+    200 for twenty minutes while the registry called it cloudflare-access.
+    Its DNS record had been created with no Access application behind it,
+    which looks identical to a working one from everywhere except the open
+    internet - so that is what this script has to ask.
+    """
+    body = code(CHECK_EXPOSURE)
+    assert "https://${hostname}" in body
+
+    # bin/health deliberately does NOT do this - it probes inside the
+    # container so a tunnel hiccup cannot roll back good code. These two
+    # scripts want opposite things, and confusing them breaks one of them.
+    assert "hostname" not in code(HEALTH)
+
+
+def test_check_exposure_reads_the_gate_not_the_status_code():
+    # An Access-protected hostname redirects to the team's login domain. That
+    # redirect is the gate. A 302 on its own means nothing - plenty of things
+    # redirect - so matching on the status would call any redirect "gated".
+    body = code(CHECK_EXPOSURE)
+    assert "cloudflareaccess" in body
+
+
+def test_check_exposure_only_looks_at_live_apps():
+    # A planned app is unrouted by construction, so checking it would fail on
+    # DNS and say nothing about exposure.
+    assert 'status") == "live"' in code(CHECK_EXPOSURE)
+
+
+def test_check_exposure_exits_2_when_reality_contradicts_the_registry():
+    # Distinct from 1, which means the check could not be run. A caller has to
+    # tell "this app is exposed" from "I could not find out", and the second
+    # must never be read as the first.
+    body = code(CHECK_EXPOSURE)
+    assert "exit 2" in body
+    assert "exit 1" in body
+
+
+def test_check_exposure_does_not_translate_newlines():
+    """The lookup writes bytes, not print().
+
+    On Windows print() emits CRLF, the CR rides into `exposure`, and it then
+    matches none of the cases. Command substitution strips only the LAST
+    trailing newline, so exactly one app - whichever sorts last - was
+    classified correctly and every other reported "exposure is not one this
+    script knows". It would have passed on the box and failed only on the
+    development machines, which is the worst way round.
+    """
+    body = code(CHECK_EXPOSURE)
+    assert "sys.stdout.buffer.write" in body
+    assert "print(" not in body

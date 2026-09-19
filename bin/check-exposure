@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Check that an application's ACTUAL exposure matches the one apps.yml claims.
+#
+#   ./bin/check-exposure <app>        one live app
+#   ./bin/check-exposure --all        every app the registry calls live
+#
+# `exposure:` in the registry is a statement of intent. Cloudflare Access is
+# configured in a dashboard this repository cannot see, so nothing connected
+# the two - and art.cg1618.com served an unauthenticated 200 for twenty
+# minutes while the registry called it cloudflare-access. Its DNS record had
+# been created without an Access application behind it, which looks identical
+# to a working one from everywhere except the open internet.
+#
+# So this asks the open internet. Unlike bin/health, which deliberately probes
+# from inside the container because a tunnel hiccup must not roll back good
+# code, the path a stranger takes is the whole point here.
+#
+# Exit codes:
+#   0  every app checked matches its declaration
+#   1  the check could not be run
+#   2  an app's real exposure contradicts the registry
+
+set -euo pipefail
+
+PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+APP=""
+ALL=0
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --all) ALL=1 ;;
+        -*)    echo "unknown option: $1" >&2; exit 1 ;;
+        *)     if [ -n "${APP}" ]; then
+                   echo "unexpected argument '$1'." >&2
+                   exit 1
+               fi
+               APP="$1" ;;
+    esac
+    shift
+done
+
+if [ "${ALL}" -eq 0 ] && [ -z "${APP}" ]; then
+    echo "usage: check-exposure <app> | --all" >&2
+    exit 1
+fi
+
+# Only `live` apps have a hostname anybody can reach; a planned app is
+# unrouted by construction and would fail on DNS rather than on anything
+# meaningful.
+#
+# The newline is written explicitly. print() translates it to CRLF on Windows,
+# where the development machines are, and the trailing CR then rides into
+# `exposure` and matches none of the cases below - passing on the box and
+# failing here, which is the worst way round.
+targets="$(python3 -c '
+import sys, yaml
+want = sys.argv[1]
+apps = yaml.safe_load(open(sys.argv[2]))["apps"]
+live = [a for a in apps if a.get("status") == "live"]
+if want != "--all":
+    live = [a for a in live if a["name"] == want]
+    if not live:
+        sys.exit(f"{want} is not a live app in apps.yml")
+for a in live:
+    line = a["name"] + " " + a["hostname"] + " " + a["exposure"] + chr(10)
+    sys.stdout.buffer.write(line.encode())
+' "${APP:---all}" "${PLATFORM_DIR}/apps.yml")"
+
+[ -n "${targets}" ] || { echo "No live apps to check." >&2; exit 1; }
+
+failed=0
+
+while read -r name hostname exposure; do
+    [ -n "${name}" ] || continue
+
+    # No --retry: the answer this script gives is a security claim, and a
+    # transient failure should say so rather than be smoothed over.
+    headers="$(curl -sS -D - -o /dev/null --max-time 20 "https://${hostname}" 2>&1)" || {
+        echo "${name}: could not reach ${hostname}" >&2
+        echo "${headers}" >&2
+        exit 1
+    }
+
+    status="$(printf '%s' "${headers}" | awk 'NR==1{print $2}')"
+
+    # An Access-protected hostname redirects an unauthenticated request to the
+    # team's login domain. That redirect IS the gate, so its presence is the
+    # check - not the status code, which is 302 for plenty of other reasons.
+    gated=0
+    if printf '%s' "${headers}" | grep -qi '^location:.*cloudflareaccess\.com'; then
+        gated=1
+    fi
+
+    case "${exposure}" in
+        cloudflare-access)
+            if [ "${gated}" -eq 1 ]; then
+                echo "${name}: gated by Access, as declared (${status})"
+            else
+                echo "${name}: DECLARED cloudflare-access BUT ANSWERS ${status} UNGATED" >&2
+                echo "  ${hostname} reaches the box without authenticating. Either add" >&2
+                echo "  an Access application covering it, or remove its DNS record." >&2
+                failed=1
+            fi
+            ;;
+        public)
+            if [ "${gated}" -eq 1 ]; then
+                # Not a hole, but the registry is wrong about the system, and
+                # this exists to catch that in either direction.
+                echo "${name}: declared public but sits behind Access" >&2
+                failed=1
+            else
+                echo "${name}: public, as declared (${status})"
+            fi
+            ;;
+        *)
+            echo "${name}: exposure '${exposure}' is not one this script knows" >&2
+            failed=1
+            ;;
+    esac
+done <<< "${targets}"
+
+if [ "${failed}" -ne 0 ]; then
+    echo >&2
+    echo "Exposure does not match the registry. See above." >&2
+    exit 2
+fi
+
+echo "Every live app matches its declared exposure."

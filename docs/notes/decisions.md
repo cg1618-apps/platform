@@ -112,9 +112,17 @@ receives — those are correctly registry-owned.
 So the app ships the definition: one constant that its routers derive their
 prefix from and its tests assert against, and a generated `deploy/gated-paths`
 committed beside `deploy/migrations`, one path per line, LF. `bin/deploy`
-already has that checkout and already reads an app-shipped file from the
-commit rather than the working tree, because `core.fileMode` is false on the
-development machines and the working tree lies about modes.
+already has that checkout, and reads it from the commit rather than the
+working tree for the ordinary reason: the working tree can hold uncommitted
+edits, and what ships is what the commit says.
+
+**`deploy/gated-paths` is data, not a hook. It is mode `100644`.** Nothing
+execs it, so none of the executable-bit machinery around `deploy/migrations`
+applies to it — and that is worth stating because the analogy invites it. A
+check asserting `100755` on a data file would fail forever, reporting a
+permission problem that does not exist. Assert `100644` and LF, with the same
+`git ls-tree HEAD` mechanism the migrations hook is checked by and a different
+expected value.
 
 **`apps.yml` still carries `gated_paths`, and a disagreement is a refusal.**
 This mirrors `migrations`, which is a declaration rather than a description:

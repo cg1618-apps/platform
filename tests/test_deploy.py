@@ -659,7 +659,15 @@ def test_a_first_deploy_reads_the_hook_from_the_incoming_commit():
         # It gets past the hook guards and on to the database, which is not
         # running here. What matters is that it did not refuse for a missing
         # hook: that refusal is the defect.
+        # Absence of one message is too weak an assertion: it passed
+        # while the deploy died one line later with "No such file or
+        # directory", because the checkout had no deploy/ directory for
+        # the incoming hook to be written into. So assert PROGRESS: it
+        # must reach the .env check, which is the next thing a bare
+        # test checkout fails on.
         assert "deploy/migrations is not" not in result.stderr, result.stderr
+        assert "No such file or directory" not in result.stderr, result.stderr
+        assert "No .env in" in result.stderr, result.stdout + result.stderr
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

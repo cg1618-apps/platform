@@ -82,5 +82,5 @@ apps:
     exposure: cloudflare-access
     health_path: /health
     migrations: true
-    status: planned
+    status: live
     description: Practice records, references, schedule, and the drawing roadmap

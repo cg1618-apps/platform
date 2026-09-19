@@ -841,3 +841,35 @@ def test_check_exposure_does_not_translate_newlines():
     body = code(CHECK_EXPOSURE)
     assert "sys.stdout.buffer.write" in body
     assert "print(" not in body
+
+
+def test_every_shell_script_in_bin_is_executable_in_the_commit():
+    """The mode bit has been lost six times, and it is lost silently.
+
+    Both development machines have core.fileMode=false, so git records 100644
+    for a file the filesystem calls executable and nothing in the working tree
+    disagrees. The box then cannot run it.
+
+    `git ls-tree HEAD`, not `git ls-files`: the latter reads the INDEX, which
+    already reflects a `chmod` that was never committed, and it has handed out
+    two false passes. Recover with `git update-index --chmod=+x <path>`.
+    """
+    scripts = shell_scripts()
+    assert scripts, "found no shell scripts - this test would pass vacuously"
+
+    listing = subprocess.run(
+        ["git", "ls-tree", "HEAD", "--", *[str(p.relative_to(ROOT)) for p in scripts]],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        check=True,
+    ).stdout
+
+    modes = {}
+    for line in listing.splitlines():
+        meta, path = line.split("\t", 1)
+        modes[path] = meta.split()[0]
+
+    assert len(modes) == len(scripts), f"ls-tree returned {modes}, expected {scripts}"
+    for path, mode in sorted(modes.items()):
+        assert mode == "100755", f"{path} is {mode} in HEAD; git update-index --chmod=+x"

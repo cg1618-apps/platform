@@ -97,3 +97,40 @@ that its first nine commits will establish a precedent either way, and a
 precedent set by accident is the thing "House style" was written against.
 
 Raised by the session that wrote #48, against its own change.
+
+## Two calls in the deploy gate have never been executed
+
+The migration-approval gate is built and merged, and two of its API calls are
+still reasoning from documentation rather than observation. Neither has run
+once:
+
+- **`verify-gate` reads `GET repos/{owner}/{repo}/environments/production`**
+  with `permissions: contents: read` and `${{ github.token }}`, and refuses
+  unless the protection rules include `required_reviewers`. That this token
+  and that scope can read the environments endpoint on a public repository is
+  from the documentation. If it cannot, the job fails closed — which is the
+  right direction, but it fails at the moment somebody is waiting on a
+  migration deploy, and the error will look like a gate misconfiguration
+  rather than a permissions one.
+- **`bin/provision` arms the gate with `gh api -X PUT
+  repos/<slug>/environments/production`**, needing a token that administers
+  the app repository. It has never been run against a repository whose
+  environment was not already armed. This one fails visibly: the `else` branch
+  prints the exact command for a machine that is logged in, and provisioning
+  continues, because by then the role, the database and the `.env` are
+  written.
+
+**The first migration deploy of any app exercises both**, and that is the only
+thing that will. Nothing before it does: the gate is skipped entirely when
+`classify` finds no migration, so every deploy so far has gone down the
+ungated lane and proven nothing about this one.
+
+Not blocking. Worth knowing before the first migration goes out rather than
+during it, and worth doing deliberately — arm an app's environment with
+`bin/provision` on a repository that has none, and watch the first gated
+deploy rather than discovering it under a release.
+
+Recovered from a working report left by the step-4 deploy-pipeline round,
+which was never in git and has been deleted. Its two other unverified claims —
+SC2088 on the `bin/` scripts and the workflow parsing under `actionlint` — are
+closed: `ci.yml` runs both on every pull request and has been green since.

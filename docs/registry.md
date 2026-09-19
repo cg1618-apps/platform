@@ -182,21 +182,62 @@ stopping the container stops all of them.
    `status: planned`. The hostname, port and database are reserved from that
    moment; nothing is routed yet.
 2. `bin/provision <app>` once, when it exists.
-3. A new repository in `cg1618-apps` satisfying the app contract: a container on
-   the port this file assigns, the health path it declares here, `DATABASE_URL`
-   from the environment, a `main` branch that is production, and - if it has
-   migrations at all - an executable `deploy/migrations`.
+3. A new repository in `cg1618-apps` satisfying **the app contract**. Every
+   item is something `bin/deploy`, `bin/health` or `bin/rollback` assumes, and
+   an app that differs fails in a way that says nothing about the cause:
+
+   - **A container on the port this file assigns**, answering the
+     `health_path` declared here.
+   - **`docker-compose.prod.yml` at the repository root.** All three scripts
+     name that exact path — `bin/health` refuses outright when it is missing,
+     which at least says so; `bin/deploy` and `bin/rollback` reach it through
+     compose and fail later and less clearly.
+   - **The app's image is built as `<app>-app:local`.** `bin/deploy` tags the
+     outgoing image `<app>-app:previous` before it pulls, and `bin/rollback`
+     swaps that tag back. An app whose service builds to some other name
+     prints "no current image - first deploy" on **every** deploy and freezes
+     on **every** rollback, with nothing else wrong and nothing pointing at
+     the name.
+   - **`DATABASE_URL` from the environment**, and a `main` branch that is
+     production.
+   - **An executable `deploy/migrations` if — and only if — its `apps.yml`
+     entry says `migrations: true`.** The two must agree: `bin/deploy` refuses
+     when the registry declares migrations and no runnable hook is there, and
+     refuses just as loudly when it declares none and a hook exists anyway.
 
    `deploy/migrations` is how the platform asks an app about its own schema,
    because reading a version table, deciding what a deploy adds and reversing a
    migration are all specific to the tool an app chose. It answers three
-   subcommands: `current` prints the revision the database is at, `added <from>
-   <to>` lists the migration files a deploy would add and prints nothing when
-   there are none, and `downgrade <target>` reverses to that revision and exits
-   non-zero when it refuses. An app that ships no such file declares it has no
-   migrations: `bin/deploy` skips both the recorded revision beside the dump and
-   the approval gate, and `bin/rollback` goes straight from the image swap to
-   freezing.
+   subcommands:
+
+   - **`current`** prints the revision the database is at, read from the
+     database rather than from the image.
+   - **`added <from> <to>`** lists the migration files a deploy would add, and
+     prints nothing when there are none. Printing nothing and failing are
+     opposite answers: the platform refuses on a non-zero exit rather than
+     reading it as "none".
+   - **`downgrade <target>`** reverses to that revision, and **must refuse —
+     non-zero, having reversed nothing — any revision whose author declared it
+     irreversible.** This is the one part of the contract that protects data
+     rather than availability. Reversing such a migration does not restore
+     what it removed; it invents something in the shape of it, and it does so
+     unattended, on the box, in the minute after a failed deploy. A partial
+     downgrade is worse again, because the schema then matches neither image.
+
+     The media tracker's marker is the literal line `irreversible = True` in
+     the revision file, and its hook greps the revisions between the current
+     head and the target for it before running anything. Another app may mark
+     it another way; what the platform requires is that the hook knows the
+     marker and stops.
+
+   The hook is called with **`PLATFORM_DIR` exported**, naming the platform
+   checkout. A hook that needs the shared PostgreSQL — `current` does — reaches
+   it through `${PLATFORM_DIR}/docker-compose.prod.yml` rather than guessing a
+   path that is right until the checkout moves.
+
+   An app whose entry says `migrations: false` has no hook and needs none:
+   `bin/deploy` skips both the recorded revision beside the dump and the
+   approval gate, and `bin/rollback` goes straight to the image swap.
 
 4. When it can actually serve, one line: `status: live`. That is the change
    that routes its hostname and links it from the apex page.

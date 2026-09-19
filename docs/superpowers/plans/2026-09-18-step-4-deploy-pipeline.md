@@ -366,6 +366,31 @@ def test_the_reusable_workflow_is_not_callable_from_a_pull_request():
 
 ### Task 4: The media tracker adopts it
 
+> **BLOCKER — `media` must ship `deploy/migrations` BEFORE `bin/deploy media`
+> runs on the box.**
+>
+> `media` has no `deploy/migrations` today, and `media` is the only `live` app.
+> Pointing this pipeline at it as it stands would deploy with **no approval
+> gate** and **no rollback target**: `bin/deploy` would record no schema
+> revision beside the dump, and `bin/rollback` would have nothing to downgrade
+> to. That is the exact failure the whole tiering exists to prevent, on the one
+> application that is actually serving.
+>
+> Since the registry now carries `migrations: true|false` and `media` declares
+> `true`, `bin/deploy media` **refuses to run** until the hook exists — loudly,
+> at the start, having touched nothing. That is the intended behaviour, not a
+> problem to work around: do not flip `media` to `migrations: false` to get
+> past it.
+>
+> The hook is written in the `media` repository, as its own task, against the
+> contract in `docs/registry.md`. **It must carry the `irreversible = True`
+> refusal**, which currently exists nowhere: `media/deploy/rollback.sh` greps
+> the revision files between the current head and the target for the literal
+> line `^irreversible = True$` and refuses, non-zero, having reversed nothing.
+> Deleting `rollback.sh` in this task without re-homing that check into the
+> hook silently removes the only thing standing between an automated rollback
+> and a migration that invents data instead of restoring it.
+
 **Files (in `media/`):**
 - Modify: `.github/workflows/deploy.yml` — reduced to a call
 - Delete: `deploy/deploy.sh`, `deploy/rollback.sh`, `deploy/health.sh`

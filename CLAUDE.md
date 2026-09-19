@@ -65,11 +65,10 @@ shape of the code, and should never have to work out from scratch where a
 thing lives.
 
 **`media` is the reference implementation.** It is the oldest and by far the
-largest, and its conventions are the only ones already proven on this box, so
-it is what the other three copy from. Before inventing a convention — a
-directory layout, a router shape, a settings module, a schema or fixture
-naming scheme, a list page, a component name — **read how `media` does it and
-follow that**. Read the actual file rather than the pattern you expect it to
+largest, and its conventions are the most proven on this box, so it is the one
+the other three follow. Before inventing a convention — a directory layout, a
+router shape, a settings module, a schema or fixture naming scheme, a list
+page, a component name — **read how `media` does it and follow that**. Read the actual file rather than the pattern you expect it to
 have; "Suspect any shape that reads as uniform" in "Rule" applies here more
 than anywhere, because copying a convention you half-remember is how two apps
 end up almost the same.
@@ -78,7 +77,8 @@ end up almost the same.
 the only guaranteed common ground" above still holds: framework, frontend,
 migration tool and build step remain each app's choice, and this section does
 not quietly make `media`'s choices mandatory. Copying its *conventions* is the
-default; copying its *stack* is a decision each app makes on its merits.
+default; copying its *stack* is each app's own decision, and the other three
+have already made theirs.
 Where an app diverges deliberately — `art`'s stopwatch is the expected case —
 **record the divergence and its reason in that app's
 `docs/notes/decisions.md`**, so a later reader can tell a decision from an
@@ -633,7 +633,9 @@ So:
 - **Do not** record which session is doing what. A branch has one owner by
   construction, and concurrent sessions each take their own worktree.
 
-Two things a branch cannot hold, and the only two that go in `docs/`:
+Two things a branch cannot hold, and the only two **work-tracking** documents
+that go in `docs/` — the ordinary present-tense pages an app documents itself
+with are a different thing and are covered in "House style" above:
 
 - **`docs/open-items.md`** — known defects and unmade decisions that nobody is
   currently working on. Everything in it is open by definition: no status

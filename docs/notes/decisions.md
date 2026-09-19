@@ -91,3 +91,48 @@ exactly like a working gate.
 `bin/check-exposure` asks the open internet. It is deliberately the opposite
 of `bin/health`, which probes from inside the container so that a tunnel
 hiccup cannot roll back good code.
+
+## A gated path is defined by the app; the registry declares it and is checked
+
+`docs/registry.md` tells a `public` app to keep its write surface under its own
+path prefix and protect that prefix, or a public hostname is a public editor.
+Nothing expressed that prefix, and nothing checked it: `exposure` is one enum
+for a whole app, and `bin/check-exposure` probes `https://<hostname>` and
+nothing below it, so an unprotected write prefix answers ungated at the root —
+correctly — and passes.
+
+**The app is the authority.** Which paths an app's writes live on is a fact
+about its route table, discoverable only in that repository and changed only by
+a commit there. A prefix typed by hand into `apps.yml` is a transcription of
+something that lives elsewhere, and it goes stale the moment a route moves,
+silently, because the platform has no way to notice. That is the opposite of
+`hostname`, `port` and `database`, which the platform *allocates* and the app
+receives — those are correctly registry-owned.
+
+So the app ships the definition: one constant that its routers derive their
+prefix from and its tests assert against, and a generated `deploy/gated-paths`
+committed beside `deploy/migrations`, one path per line, LF. `bin/deploy`
+already has that checkout and already reads an app-shipped file from the
+commit rather than the working tree, because `core.fileMode` is false on the
+development machines and the working tree lies about modes.
+
+**`apps.yml` still carries `gated_paths`, and a disagreement is a refusal.**
+This mirrors `migrations`, which is a declaration rather than a description:
+`bin/deploy` refuses in both directions when the registry and the repository
+disagree, because which of them is right is a person's call. The same applies
+here.
+
+The analogy is not exact, and the difference is the reason the registry holds
+the values rather than a boolean. `migrations` is a boolean because `bin/deploy`
+only needs to know whether a hook should exist; it has the hook itself to run.
+`bin/check-exposure --all` has no app checkout — it runs from this repository
+against the open internet, and on a development machine the apps are cloned
+here but the registry's `path` describes the box's layout. It therefore needs
+the path strings themselves to have anything to probe. Two copies were accepted
+deliberately, with the drift made loud at deploy, rather than making the check
+runnable only from the box.
+
+Rejected: leaving the registry silent and the policy Cloudflare-side only. It
+is cheaper, and it reproduces exactly the gap `bin/check-exposure` was written
+to close — a gate asserted in a dashboard this repository cannot see, with
+nothing connecting the claim to the reality.

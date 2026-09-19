@@ -29,21 +29,26 @@ requires writes behind Access on their own prefix. It is not blocking anything
 today because food has no write routes yet, but it must be settled before
 food's first write endpoint reaches `main`.
 
-The decision is which of these it is, and it is the platform's to make, not an
-app's:
+The decision is made — `docs/notes/decisions.md`, "A gated path is defined by
+the app; the registry declares it and is checked". What remains is building it,
+and none of it is urgent: food has no write routes, so nothing is exposed yet.
 
-1. A registry key — something like `gated_paths: ["/api/edit"]` — that
-   `bin/check-exposure` probes for the Access redirect, the way it already
-   probes the root. Keeps the claim and the check in the same place as every
-   other exposure claim.
-2. Cloudflare-side only: the Access policy covers the path, and the registry
-   stays silent about it. Cheaper now, and it reproduces exactly the gap that
-   `bin/check-exposure` was written to close after `art` served
-   unauthenticated for twenty minutes.
-3. The app authenticates its own writes and Access is not involved. Moves the
-   gate into code, which then needs refusal tests with fixtures that make
-   refusal possible.
+What is left to do, in the order it has to happen:
 
-Option 1 is the one consistent with how everything else here works — the
-registry states intent and a script asks the open internet whether reality
-agrees.
+- `food` ships the definition — one constant its routers derive from, a test
+  that enumerates routes and asserts every non-GET one sits under it (with a
+  mirror case, since that test is vacuous on an empty route table), and a
+  generated `deploy/gated-paths` asserted to match the constant. food owns
+  this and is building it in the same pull request as its first write
+  endpoint, not before: the prefix string is still an open design question
+  there, and committing it now would enshrine a value nobody has chosen.
+- `schema/apps.schema.json` gains an optional `gated_paths` array of strings.
+- `bin/deploy` refuses when the registry's `gated_paths` and the app's
+  `deploy/gated-paths` disagree, in both directions, reading the app's file
+  from the commit rather than the working tree.
+- `bin/check-exposure` probes each declared path for the Access redirect the
+  way it already probes the root, and its refusal tests are written against a
+  fixture that makes refusal possible.
+
+The registry change is the platform's and must be ready before food's first
+write endpoint reaches `main`.

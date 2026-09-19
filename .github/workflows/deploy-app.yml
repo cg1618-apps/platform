@@ -8,6 +8,12 @@ name: Deploy app
 #     fork's pull request execute on it, which is the standard catastrophe.
 #     tests/test_deploy_workflow.py fails the build if any other trigger is
 #     ever added.
+#   * "workflow_call only" is not access control. This repository is public,
+#     so ANY repository on GitHub may call this workflow. That cannot reach
+#     the box - runner resolution happens in the CALLER's context, and a
+#     stranger's repository has no self-hosted runner labelled `homelab` -
+#     but the sentence above should not be read as "only our repositories can
+#     call it".
 #   * the decision of WHAT is deployed belongs to the app: its own workflow
 #     triggers on a push to its own `main` and calls this one. `main` is
 #     production, and the box's checkout of that app tracks `main`, so the
@@ -35,9 +41,13 @@ on:
         default: '["self-hosted", "homelab"]'
 
 concurrency:
-  # Per app, not global: two apps deploying at once touch different databases,
-  # different images and different compose projects, so serialising them buys
-  # nothing. One app deploying over itself is the thing that must not happen.
+  # Per app, not global. This does not let two apps deploy at once - a
+  # concurrency group is already scoped to the repository it runs in, and each
+  # app has its own repository, so two apps never shared a group to begin
+  # with. What naming the app buys is that the group cannot collide with
+  # another group in the SAME repository, and that a queued run says which app
+  # it is waiting for. One app deploying over itself is the thing that must
+  # not happen.
   group: deploy-${{ inputs.app }}
   # Never cancel a deploy in flight. A cancelled run can leave the box between
   # `git pull` and `up -d --build`, which is a state no exit code describes.
@@ -94,6 +104,17 @@ jobs:
       # The registry, from the platform repository - public, so the caller's
       # own token reads it. `main`, because the registry the box will act on
       # is the one on main, not whatever ref this workflow was called at.
+      #
+      # That is right only while callers pin `@main`, as the documented
+      # example does. An app pinning a tag would take the WORKFLOW from the
+      # tag and the REGISTRY from main, and the two could then disagree about
+      # whether the app has migrations at all.
+      #
+      # If this repository ever goes private, the caller's token cannot read
+      # it: this checkout 404s, classify fails, and both deploy lanes skip on
+      # `needs`. It fails closed and loud, which is the right direction - but
+      # it fails for every app at once and the message names a checkout rather
+      # than a permission.
       - name: Check out the registry
         uses: actions/checkout@v4
         with:
@@ -101,16 +122,32 @@ jobs:
           ref: main
           path: platform
 
+      # ubuntu-latest ships python3, and PyYAML's presence is an image detail
+      # rather than a promise. Without it the lookup below fails, `gated()`
+      # fires, and EVERY deploy of EVERY app takes the approval lane
+      # permanently - correct and useless, in a green run.
+      - name: The registry parser's one dependency
+        run: python3 -m pip install --quiet "PyYAML==6.0.2"
+
       - id: check
         env:
           APP: ${{ inputs.app }}
+          # The hook contract says PLATFORM_DIR is exported when it is called,
+          # and bin/deploy and bin/rollback both do. The registry is checked
+          # out here anyway, so the hook sees the same convention whether the
+          # platform asks it on a runner or on the box.
+          PLATFORM_DIR: ${{ github.workspace }}/platform
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
 
           gated() {
-            echo "$1"
+            # ::warning:: rather than a bare echo: "I could not tell" is the
+            # branch that quietly turns the approval lane into the only lane,
+            # and a line in a step's log is not somewhere anyone looks at a
+            # green run.
+            echo "::warning::$1"
             echo "migration=true" >> "$GITHUB_OUTPUT"
             exit 0
           }
@@ -172,6 +209,11 @@ jobs:
     needs: classify
     if: needs.classify.outputs.migration == 'false'
     runs-on: ${{ fromJSON(inputs.runs_on) }}
+    # Nothing here talks to the API: the job's whole act is running a shell
+    # script on the box. Without this it inherits the caller repository's
+    # default token, which is a credential sitting on a machine in a house
+    # for no reason. classify needs `contents: read` and says so.
+    permissions: {}
     steps:
       # No actions/checkout. The runner's workspace is ~/actions-runner/_work/
       # and the stack only works from the platform checkout at ~/cg1618 and
@@ -189,6 +231,11 @@ jobs:
           APP: ${{ inputs.app }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          # classify read apps.yml from platform@main; THIS is the checkout
+          # that acts, and it can be months behind. When the two disagree -
+          # about a migrations: declaration, about where an app's checkout is
+          # - the run's log is the only place that says so.
+          echo "platform: $(git rev-parse --short HEAD)"
           rc=0
           ./bin/deploy "${APP}" --ci || rc=$?
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
@@ -207,7 +254,19 @@ jobs:
           APP: ${{ inputs.app }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          ./bin/rollback "${APP}"
+          # Exit 3 is the one outcome that needs a person: bin/rollback froze
+          # part-way and named the dump a human must decide about. Every other
+          # non-zero exit is a step that went red like any other, and a red
+          # step nobody distinguishes is a frozen app nobody notices.
+          log="$(mktemp)"
+          rc=0
+          ./bin/rollback "${APP}" > "${log}" 2>&1 || rc=$?
+          cat "${log}"
+          if [ "${rc}" -eq 3 ]; then
+            dump="$(sed -n 's/.*pre-deploy dump: *//p' "${log}" | head -1)"
+            echo "::error::FROZEN - ${APP} needs a person. Pre-deploy dump: ${dump:-see the log above}. Restoring it is a human decision; it discards every write since."
+          fi
+          exit "${rc}"
 
   # Does the gate actually exist? `environment: production` on the job below
   # is the whole approval gate, and referencing an environment that does not
@@ -269,6 +328,9 @@ jobs:
     if: needs.classify.outputs.migration == 'true'
     runs-on: ${{ fromJSON(inputs.runs_on) }}
     environment: production
+    # Same as the ungated lane: this job runs a script, it does not call the
+    # API. verify-gate is the job that needs a token, and it has its own.
+    permissions: {}
     steps:
       - name: Deploy
         id: deploy
@@ -277,6 +339,11 @@ jobs:
           MIGRATION_APPROVED: "1"
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          # classify read apps.yml from platform@main; THIS is the checkout
+          # that acts, and it can be months behind. When the two disagree -
+          # about a migrations: declaration, about where an app's checkout is
+          # - the run's log is the only place that says so.
+          echo "platform: $(git rev-parse --short HEAD)"
           rc=0
           ./bin/deploy "${APP}" --ci || rc=$?
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
@@ -291,4 +358,16 @@ jobs:
           APP: ${{ inputs.app }}
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
-          ./bin/rollback "${APP}"
+          # Exit 3 is the one outcome that needs a person: bin/rollback froze
+          # part-way and named the dump a human must decide about. Every other
+          # non-zero exit is a step that went red like any other, and a red
+          # step nobody distinguishes is a frozen app nobody notices.
+          log="$(mktemp)"
+          rc=0
+          ./bin/rollback "${APP}" > "${log}" 2>&1 || rc=$?
+          cat "${log}"
+          if [ "${rc}" -eq 3 ]; then
+            dump="$(sed -n 's/.*pre-deploy dump: *//p' "${log}" | head -1)"
+            echo "::error::FROZEN - ${APP} needs a person. Pre-deploy dump: ${dump:-see the log above}. Restoring it is a human decision; it discards every write since."
+          fi
+          exit "${rc}"

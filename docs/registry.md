@@ -280,7 +280,16 @@ stopping the container stops all of them.
    The hook is called with **`PLATFORM_DIR` exported**, naming the platform
    checkout. A hook that needs the shared PostgreSQL — `current` does — reaches
    it through `${PLATFORM_DIR}/docker-compose.prod.yml` rather than guessing a
-   path that is right until the checkout moves.
+   path that is right until the checkout moves. `bin/deploy`, `bin/rollback`
+   and the workflow's `classify` job all export it.
+
+   **`added` must answer from the git checkout alone — no database, no
+   containers.** Only `current` and `downgrade` may touch the database.
+   `added` is asked on a **GitHub-hosted runner** as well as on the box, where
+   there is no PostgreSQL, no compose project and no `.env`. The first app
+   whose `added` shells into compose would fail there on every push, `classify`
+   would gate on the failure, and every one of that app's deploys would need
+   an approval for good — correct, in a green run, and permanent.
 
    An app whose entry says `migrations: false` has no hook and needs none:
    `bin/deploy` skips both the recorded revision beside the dump and the
@@ -319,6 +328,27 @@ stopping the container stops all of them.
      must not carry a `pull_request` trigger anywhere near this job. The
      reusable workflow is `workflow_call` only for that reason; a caller that
      adds a trigger of its own hands the same catastrophe back.
+
+     **Nothing enforces that, and it is worth being exact about why.**
+     `tests/test_deploy_workflow.py` can only read the workflows in *this*
+     repository; the platform cannot see, let alone fail, what an app repo
+     commits. A fork's pull request against an app repository runs in the base
+     repository's context, so a `pull_request` trigger there would reach the
+     box. Today the rule is **honour-system: a line in this document and a
+     line in the workflow's header comment.**
+
+     Three things would actually enforce it, none of them done:
+
+     - a **runner group restricted to selected repositories**, so a repo that
+       was never listed cannot resolve the `homelab` label at all;
+     - an **organisation Actions policy requiring approval for all outside
+       collaborators**, so a fork's pull request does not run unattended;
+     - **shipping the trigger test to app repositories** as a reusable CI
+       workflow, so each app fails its own pull request the way the platform
+       fails its own.
+
+     The first two are settings rather than code, and the third is the only
+     one this repository can make true by itself.
 
 4. When it can actually serve, one line: `status: live`. That is the change
    that routes its hostname and links it from the apex page.

@@ -68,7 +68,10 @@ def test_no_workflow_here_lets_a_pull_request_reach_the_self_hosted_runner():
     # file, and the next workflow added to this directory is the one nobody
     # will think to check.
     checked = set()
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+    # *.y*ml, not *.yml: GitHub reads both extensions, and this guard
+    # exists for the next workflow nobody thinks to check - which is exactly
+    # the one that might be spelled .yaml.
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
         wf = load(path)
         # By the jobs' `runs-on`, not by a text search: ci.yml says
         # "self-hosted" in the comment explaining that it never uses one, and
@@ -87,7 +90,7 @@ def test_no_workflow_here_lets_a_pull_request_reach_the_self_hosted_runner():
 def test_the_workflows_directory_was_actually_searched():
     # The guard on the guard: a glob that matches nothing passes the test
     # above without reading a line.
-    names = {p.name for p in WORKFLOWS.glob("*.yml")}
+    names = {p.name for p in WORKFLOWS.glob("*.y*ml")}
     assert {"ci.yml", "deploy-app.yml"} <= names, names
 
 
@@ -293,8 +296,81 @@ def test_classify_clones_enough_history_to_answer():
     assert app["with"]["fetch-depth"] == 0
 
 
+def test_the_classify_outputs_are_wired_to_the_step_that_sets_them():
+    # Delete this mapping and both lanes compare against an empty string,
+    # both `if`s are false, both jobs skip - and the run is GREEN with
+    # nothing deployed. Nothing else in this file would notice.
+    outputs = workflow()["jobs"]["classify"]["outputs"]
+    assert outputs["migration"] == "${{ steps.check.outputs.migration }}"
+    # And the step it names is the one that writes it.
+    assert "migration=" in classify_step()["run"]
+
+
+def test_classify_installs_the_only_thing_its_parser_needs():
+    # PyYAML's presence on ubuntu-latest is an image detail, not a promise.
+    # Without it the registry lookup fails, gated() fires, and every deploy
+    # of every app takes the approval lane permanently - in a green run.
+    steps = workflow()["jobs"]["classify"]["steps"]
+    positions = [i for i, s in enumerate(steps) if "pip install" in s.get("run", "")]
+    assert positions, [s.get("name") for s in steps]
+    assert "PyYAML" in steps[positions[0]]["run"]
+    # Before the step that imports it.
+    check = [i for i, s in enumerate(steps) if s.get("id") == "check"][0]
+    assert positions[0] < check
+
+
+def test_classify_makes_an_uncertain_answer_visible_in_the_run_summary():
+    # The gated branch is correct and quiet. A deploy that takes the approval
+    # lane because PyYAML was missing looks exactly like one that takes it
+    # because a migration is real.
+    assert 'echo "::warning::$1"' in classify_script()
+
+
+def test_classify_exports_platform_dir_to_the_hook():
+    # The contract says the hook is called with PLATFORM_DIR exported, and
+    # bin/deploy and bin/rollback both do it. A hook that reads it would
+    # otherwise fail here only - on the runner - and every deploy of that app
+    # would take the approval lane for good.
+    assert classify_step()["env"]["PLATFORM_DIR"] == "${{ github.workspace }}/platform"
+
+
+def test_neither_lane_carries_a_token_it_does_not_use():
+    # Both jobs' whole act is running a shell script on the box. Without an
+    # explicit empty block they inherit the CALLER repository's default token,
+    # on a machine in a house, for nothing.
+    for name, job in deploy_jobs(workflow()).items():
+        assert job["permissions"] == {}, name
+
+
+def test_the_deploy_step_records_which_platform_checkout_ran():
+    # classify read apps.yml from platform@main; the box runs its own
+    # checkout, which can be months behind. When the two disagree, this line
+    # is the only place that says so.
+    for name, job in deploy_jobs(workflow()).items():
+        assert "git rev-parse --short HEAD" in run_steps(job)[0]["run"], name
+
+
+def test_a_frozen_rollback_is_distinguishable_from_an_ordinary_failure():
+    # bin/rollback exits 3 when it stopped part-way and a human must decide
+    # about the dump. Without this the step is red like any other red step,
+    # and a frozen app is something nobody is told about.
+    for name, job in deploy_jobs(workflow()).items():
+        body = run_steps(job)[1]["run"]
+        assert '[ "${rc}" -eq 3 ]' in body, name
+        assert "::error::" in body, name
+        assert "pre-deploy dump" in body, name
+        # And the step still fails: an annotation is not an outcome.
+        assert 'exit "${rc}"' in body, name
+
+
+def classify_step() -> dict:
+    steps = [s for s in workflow()["jobs"]["classify"]["steps"] if s.get("id") == "check"]
+    assert len(steps) == 1
+    return steps[0]
+
+
 def classify_script() -> str:
-    return run_steps(workflow()["jobs"]["classify"])[0]["run"]
+    return classify_step()["run"]
 
 
 # --- nothing is one app's ---------------------------------------------------

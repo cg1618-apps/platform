@@ -232,9 +232,18 @@ jobs:
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
           # classify read apps.yml from platform@main; THIS is the checkout
-          # that acts, and it can be months behind. When the two disagree -
-          # about a migrations: declaration, about where an app's checkout is
-          # - the run's log is the only place that says so.
+          # that acts. Bring it to the same place before it does, or the two
+          # disagree about a migrations: declaration or about where an app's
+          # checkout is, and only the run's log would say so. It ran three
+          # commits behind on travel's first deploy and refused, for a reason
+          # that had been fixed on main an hour earlier.
+          #
+          # --ff-only: a box whose platform checkout has diverged is a box
+          # someone has been working on by hand, and a merge is not this
+          # step's decision to make.
+          git -C . fetch origin main --quiet
+          git -C . checkout --quiet main
+          git -C . merge --ff-only origin/main --quiet
           echo "platform: $(git rev-parse --short HEAD)"
           rc=0
           ./bin/deploy "${APP}" --ci || rc=$?
@@ -351,9 +360,18 @@ jobs:
         run: |
           cd "${PLATFORM_DIR:-$HOME/cg1618}"
           # classify read apps.yml from platform@main; THIS is the checkout
-          # that acts, and it can be months behind. When the two disagree -
-          # about a migrations: declaration, about where an app's checkout is
-          # - the run's log is the only place that says so.
+          # that acts. Bring it to the same place before it does, or the two
+          # disagree about a migrations: declaration or about where an app's
+          # checkout is, and only the run's log would say so. It ran three
+          # commits behind on travel's first deploy and refused, for a reason
+          # that had been fixed on main an hour earlier.
+          #
+          # --ff-only: a box whose platform checkout has diverged is a box
+          # someone has been working on by hand, and a merge is not this
+          # step's decision to make.
+          git -C . fetch origin main --quiet
+          git -C . checkout --quiet main
+          git -C . merge --ff-only origin/main --quiet
           echo "platform: $(git rev-parse --short HEAD)"
           rc=0
           ./bin/deploy "${APP}" --ci || rc=$?

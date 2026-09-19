@@ -1,6 +1,6 @@
 # The shared stack
 
-Last verified: 2026-09-18
+Last verified: 2026-09-19
 
 `docker-compose.prod.yml` in this repository runs the half of the box that
 belongs to no single application: one PostgreSQL and one Cloudflare Tunnel. It
@@ -86,7 +86,7 @@ deploy cadences.
 ## The apex page
 
 `cg1618.com` is served by a third container in this project: `nginx:alpine`
-listening on **8007**, with `apex/index.html` and `apex/nginx.conf` mounted
+listening on **8007**, with `apex/html/` and `apex/conf/` mounted
 read-only. The page is generated from `apps.yml` and committed; the container
 runs no application code and has no database.
 
@@ -101,3 +101,21 @@ workflow, `bin/deploy` and `bin/provision` — which is what creates an app's
 database and role — arrive with the next step of the platform sequence. Until
 then an application's deploy script reaches this project directly, and the
 media tracker's `DB_COMPOSE` is the pattern.
+
+## Bind mounts are directories, never single files
+
+Every bind mount in `docker-compose.prod.yml` names a directory. A single-file
+mount pins the inode, and `git pull` replaces a file rather than writing
+through it — so the container goes on serving the old content while the file
+on disk is correct, and neither side says anything is wrong. The apex page was
+mounted that way the day travel went live: the file on disk linked to travel
+and the page being served still said "planned", and `SIGHUP` to cloudflared
+reloaded a config that had been replaced underneath it. A directory mount
+re-resolves the name on every open.
+
+`tests/test_deploy.py` asserts it, so a file mount cannot come back.
+
+The one exception is the tunnel credentials, which are mounted from outside
+the repository by absolute path. Nothing rewrites that file, and it nests
+inside the `cloudflared` directory mount — docker resolves nested mounts by
+depth, so the more specific one still lands on top.

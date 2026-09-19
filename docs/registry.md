@@ -53,6 +53,16 @@ ignored by every generator downstream.
   are never `public`. They hold a different class of data, and the Cloudflare
   Access decision belongs *before* an ingress rule exists rather than after it
   has been serving.
+
+  **That list is three apps, and deliberately not five.** `travel` and `art`
+  are also private today — both are `cloudflare-access` — but they are expected
+  to publish something eventually: a shared trip, a finished drawing. For them,
+  `public` is a change the app is meant to want, once its own visibility checks
+  exist. A rule that must be deleted to allow an intended change is a speed
+  bump rather than a protection, and it gets deleted in a hurry, in the same
+  pull request as the feature. The three on the list are the ones where
+  `public` is never correct at any point in the future, which is what makes
+  refusing it meaningful.
 - **That each app names its own repository**, so a copy-pasted entry cannot
   point two apps at one repo.
 
@@ -88,6 +98,26 @@ authentication or per-user state it becomes `cg1618-apps/landing` with its own
 repository, its own port and an entry like any other app — that rule is what
 keeps "no application code in the infrastructure repository" honest rather than
 arbitrary.
+
+## Exposure, and where the gate lives
+
+| Value | Who authenticates | When it fits |
+| --- | --- | --- |
+| `public` | nobody, or the app itself | anything anyone may read. The app still needs its own gate on **writes**. |
+| `cloudflare-access` | Cloudflare, before the request reaches the box | one user, no accounts, nothing to log into. Zero auth code in the app. |
+| `lan-only` | nothing — there is no ingress rule at all | something that should never leave the house. |
+
+**`cloudflare-access` is all-or-nothing per path**, which is what makes the URL
+layout a decision rather than a detail. An app that may ever share part of
+itself should keep shareable routes under their own prefix from the start, so
+that opening them up later is an Access policy edit rather than a redesign. The
+same applies in reverse to a `public` app: put the write surface under its own
+prefix and protect that, or a public hostname is a public editor.
+
+**Moving an app from `cloudflare-access` to `public` moves the gate from
+Cloudflare into code.** The app's own visibility checks must already work
+before that change lands — and be tested for *refusal*, with fixtures that make
+refusal possible, because a check over an empty set passes without ever firing.
 
 ## Adding an application
 

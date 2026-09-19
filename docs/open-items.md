@@ -48,8 +48,28 @@ What is left to do, in the order it has to happen:
   disagree in either direction, and `bin/check-exposure` probes each declared
   path for the Access redirect.
 
-**What is left is not code. There is no Cloudflare Access application covering
-`food.cg1618.com/api/edit`.**
+**Both halves are now in place.** The Access application covering
+`food.cg1618.com/api/edit` exists, and `apps.yml` declares the prefix.
+Measured from the open internet rather than from a dashboard: `/api/edit` and
+`/api/edit/ingredients` answer 302 to `cg1618.cloudflareaccess.com`, while
+`/`, `/health`, `/api` and `/api/ingredients` answer ungated — so the policy is
+neither too narrow nor too wide.
+
+**One window is open and it is inherent to two repositories.** `food` ships
+`deploy/gated-paths` on its `dev`, not yet on `main`, so until its release
+lands `bin/deploy` refuses a food deploy: the registry declares `/api/edit` and
+`origin/main` declares nothing. That is the two-PRs-in-sequence cost the
+polyrepo decision already names, and it cannot be avoided - the two halves live
+in two repositories and cannot land in one commit.
+
+The order was chosen to put the window where nothing happens. Declaring now
+blocks deploys of a skeleton `main` nobody deploys. Declaring after the release
+merged would instead refuse **the release itself**, at the moment somebody is
+waiting on it. If a food deploy is needed before the release, the answer is to
+land the release, not to remove the declaration.
+
+~~There is no Cloudflare Access application covering
+`food.cg1618.com/api/edit`.~~
 
 `food` shipped `deploy/gated-paths` containing `/api/edit` and enforces it in
 its own CI. `apps.yml` deliberately does **not** declare it yet, and the order

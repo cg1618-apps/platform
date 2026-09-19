@@ -53,6 +53,16 @@ apps:
     migrations: true
     status: live
     description: Ingredients, recipes, what is cookable, and the cooking schedule
+    # food is public: reads are unauthenticated and its writes sit behind
+    # Access on one prefix. The app owns that definition - app/routing.py holds
+    # WRITE_PREFIX and generates deploy/gated-paths from it - and this is the
+    # declaration bin/deploy refuses to disagree with, exactly as it refuses
+    # when `migrations` and the hook on disk disagree. bin/check-exposure
+    # probes each path here for the Access redirect, which the hostname root
+    # cannot answer for: a public app answers ungated at / by design, and would
+    # go on doing so with the write surface wide open.
+    gated_paths:
+      - /api/edit
 
   - name: travel
     hostname: travel.cg1618.com

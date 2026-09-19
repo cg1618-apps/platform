@@ -191,6 +191,14 @@ if [ "${CI_MODE}" -eq 1 ]; then
             echo "A hook that is not executable cannot run. Refusing." >&2
             exit 1
         fi
+        # The directory may not exist yet. On an app's FIRST deploy the
+        # checkout predates its own deploy/ directory entirely - art's
+        # box checkout was the pre-release main, which had no deploy/ at
+        # all - and the redirection below then fails with "No such file
+        # or directory", naming the temp file rather than the cause. That
+        # is the very case reading the hook from the incoming commit
+        # exists to serve, so it has to work before deploy/ is there.
+        mkdir -p "$(dirname "${MIGRATIONS}")"
         git show origin/main:deploy/migrations > "${MIGRATIONS}"
         chmod +x "${MIGRATIONS}"
     fi

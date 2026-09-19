@@ -23,7 +23,14 @@ apps:
   - name: media
     hostname: media.cg1618.com
     port: 8000
-    database: media
+    # anime_site_db, not media. This app predates the layout, like its
+    # ~/anime_site checkout below, and the name is what the box actually
+    # has. bin/deploy dumps the database this field names, so a tidier
+    # name here would dump a database that does not exist - which fails
+    # safe, but blocks every deploy until the two agree. Renaming the
+    # real database is a separate act with its own downtime and its own
+    # dump; it is not done by editing this line.
+    database: anime_site_db
     repo: git@github.com:cg1618-apps/media.git
     exposure: public
     health_path: /api/health

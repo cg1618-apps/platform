@@ -1,0 +1,19 @@
+# Lint for this repository's Python: the generators, the validator and the
+# tests. Run: ruff check .
+#
+# The rule set is the one the applications use, so a helper moved between a
+# repository and this one is linted the same way at both ends. Without a
+# config, ruff's defaults leave E402 off - and the `# noqa: E402` on every
+# `sys.path.insert` import then reads as an unused directive, which is a
+# failure that says nothing about the code.
+#
+# The nested app checkouts are excluded because they are other repositories
+# that happen to sit inside this one; each carries its own config and its own
+# CI, and linting them from here would report their state as this repo's.
+line-length = 100
+target-version = "py313"
+extend-exclude = ["venv", "media", "art", "food", "journal", "health", "money", "travel"]
+
+[lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]  # line length is advisory

@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# Deploy an application's current branch to this box, reversibly.
+#
+#   ./bin/deploy <app> [--ci] [--app-dir PATH]
+#
+# The dump is the point of this script. An app migrates its own database on
+# every start, so by the time a bad migration is visible it has already run -
+# and reversing a migration is not a restore: undoing a dropped column
+# recreates it empty. Dumping before the pull is what makes a migration
+# reversible at all.
+#
+# Rollback is bin/rollback, and it is three steps rather than two: the code has
+# to be reverted along with the schema, or the next start re-applies the
+# migration that caused the problem. That is why the revision is recorded
+# beside each dump - twice, once for git and once for the app's migration tool.
+#
+# Exit codes, and the difference between them is load-bearing:
+#   0  deployed and healthy
+#   1  refused to start; nothing was touched, and rolling back would be wrong
+#   2  the deploy ran and the result is unhealthy; bin/rollback is correct
+
+set -euo pipefail
+
+PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Exported, not merely set: the app's deploy/migrations hook reaches back
+# into the platform's compose project to read its own version table, and the
+# only process that authoritatively knows this path is this one. A hook left
+# to guess ${HOME}/cg1618 is right until the day the checkout moves.
+export PLATFORM_DIR
+
+APP=""
+CI_MODE=0
+APP_DIR=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        # --ci: invoked by the reusable deploy workflow on the self-hosted
+        # runner. Non-interactive, and guarded in ways a person standing at the
+        # keyboard does not need because they can see what branch they are on.
+        --ci)      CI_MODE=1 ;;
+        --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
+        -*)        echo "unknown option: $1" >&2; exit 1 ;;
+        # A second positional used to overwrite the first, so
+        # `deploy media food` deployed food while reading as a deploy of
+        # media. One app per run, named once.
+        *)         if [ -n "${APP}" ]; then
+                       echo "unexpected argument '$1'; ${APP} was already named." >&2
+                       exit 1
+                   fi
+                   APP="$1" ;;
+    esac
+    shift
+done
+
+[ -n "${APP}" ] || { echo "usage: deploy <app> [--ci] [--app-dir PATH]" >&2; exit 1; }
+
+# The registry is the source of truth for the database name, so a typo in an
+# app's .env cannot dump a database no generated file knows about - and the
+# dump would look perfectly fine.
+#
+# It also answers whether the app HAS migrations, which is a declaration rather
+# than an observation - see the hook check below.
+registry="$(python3 -c '
+import sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open(sys.argv[2]))["apps"]
+match = [a for a in apps if a["name"] == name]
+if not match:
+    sys.exit(f"{name} is not in apps.yml")
+entry = match[0]
+if entry["database"] is None:
+    sys.exit(f"{name} declares no database")
+if "migrations" not in entry:
+    sys.exit(f"{name} does not declare migrations: in apps.yml")
+print(entry["database"], str(entry["migrations"]).lower())
+' "${APP}" "${PLATFORM_DIR}/apps.yml")"
+read -r DB HAS_MIGRATIONS <<<"${registry}"
+
+# Apps are cloned beside the platform repository on a development machine and
+# are wherever they are on the box - the media tracker predates the layout and
+# lives at ~/anime_site - so the path is resolvable but overridable.
+APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
+[ -d "${APP_DIR}/.git" ] || {
+    echo "No checkout at ${APP_DIR}. Pass --app-dir if it is elsewhere." >&2
+    exit 1
+}
+cd "${APP_DIR}"
+
+# The APP's compose project: `up`, `ps` and its image. COMPOSE_PROJECT_NAME is
+# deliberately not cleared here.
+COMPOSE=(docker compose -f docker-compose.prod.yml)
+
+# PostgreSQL belongs to the platform's compose project, so every database call
+# reaches it through THAT file rather than this app's. Two variables, not one;
+# conflating them would deploy the shared stack from an app's directory.
+#
+# `env -u COMPOSE_PROJECT_NAME`, and it is load-bearing. This script sources
+# the app's .env with `set -a`, which EXPORTS COMPOSE_PROJECT_NAME - and an
+# exported variable beats the .env sitting beside the platform's own compose
+# file. Without this, compose looks for service `db` in the app's project and
+# says "service db is not running" while the database runs perfectly well one
+# container away. Clearing it lets the platform's .env name its own project,
+# which keeps that name in one place.
+# POSTGRES_* are cleared for the same reason and by the same mechanism. This
+# script sources the APP's .env, so leaving them exported would interpolate
+# the platform's compose file with one app's credentials. Harmless for an
+# `exec`, wrong the first time that file grows a value that matters.
+DB_COMPOSE=(env -u COMPOSE_PROJECT_NAME -u POSTGRES_USER -u POSTGRES_PASSWORD -u POSTGRES_DB docker compose -f "${PLATFORM_DIR}/docker-compose.prod.yml")
+
+# Per app, because several apps now share this box and one app's prune must not
+# reach another's dumps.
+BACKUP_DIR="${BACKUP_DIR:-${HOME}/backups}/${APP}"
+KEEP=5
+
+# Migrations are the app's business, asked through a hook: `current`,
+# `added <from> <to>`, `downgrade <target>`. Whether an app HAS migrations is
+# declared in apps.yml rather than inferred from the hook's presence, and an
+# app that declares none skips both the sidecar and the approval gate - which
+# is exactly right for an app whose schema never changes.
+MIGRATIONS="${APP_DIR}/deploy/migrations"
+
+# The registry says whether this app HAS migrations; the filesystem says
+# whether they can be run. Both must agree, and a disagreement is refused
+# rather than guessed at.
+#
+# Absence used to mean "no migrations", which made a hook that had lost its
+# mode bit indistinguishable from an app with no schema - and this repository
+# proves the bit gets lost. The result was an unapproved migration deploying
+# itself with nothing to roll back to.
+#
+# -f as well as -x, because -x is true of a DIRECTORY: that passes the gate and
+# then exits 126 on the first call.
+if [ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] || [ ! -x "${MIGRATIONS}" ]; }; then
+    echo "${MIGRATIONS} exists but is not an executable file. Refusing." >&2
+    exit 1
+fi
+if [ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has migrations, but ${MIGRATIONS} is not" >&2
+    echo "there to run. Deploying now would skip the approval gate and record" >&2
+    echo "no downgrade target. Refusing." >&2
+    exit 1
+fi
+if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has no migrations, yet ${MIGRATIONS} exists." >&2
+    echo "The registry and the repository disagree. A person settles that, not" >&2
+    echo "this script. Refusing." >&2
+    exit 1
+fi
+
+if [ ! -f .env ]; then
+    echo "No .env in $(pwd). The app's deploy documentation has the template." >&2
+    exit 1
+fi
+
+if [ "${CI_MODE}" -eq 1 ]; then
+    # This checkout IS the deploy target, and this script pulls whatever branch
+    # is checked out rather than naming one - so the branch here is the whole
+    # of the decision about what production runs. A --ci run against a feature
+    # branch would dump production, pull that branch and build it: a deploy of
+    # unreviewed code that nothing in GitHub would show as a deploy.
+    git fetch origin main --quiet
+
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "${branch}" != "main" ]; then
+        # A detached HEAD at a commit main already contains is the state
+        # bin/rollback leaves behind: it checks out the revision the dump
+        # belongs to, which is by definition an ancestor of main. Refusing that
+        # outright means ONE rollback disables automatic deploys permanently,
+        # silently, until a person notices - observed on the box, where the
+        # deploy after a successful rollback died on "On 'HEAD', not main".
+        #
+        # Returning to main is the whole recovery, and this deploy was about to
+        # pull main anyway.
+        #
+        # Everything else still refuses. A feature branch, or a detached HEAD
+        # main does not contain, is a checkout nobody should be deploying from.
+        if [ "${branch}" = "HEAD" ] && git merge-base --is-ancestor HEAD origin/main; then
+            echo "Detached at $(git rev-parse --short HEAD), which main contains -"
+            echo "the state a rollback leaves behind. Returning to main."
+            git checkout --quiet main
+        else
+            echo "On '${branch}', not main. Refusing to deploy." >&2
+            exit 1
+        fi
+    fi
+
+    # The workflow classifies the deploy from one push range. If the runner was
+    # offline across two merges, that range misses the earlier one - so
+    # re-check against this box's own HEAD, which is the only revision that is
+    # actually true about this machine. A migration reaching production
+    # unapproved is the one failure this pipeline must not have.
+    if [ "${HAS_MIGRATIONS}" = "true" ]; then
+        # Not bare, and this is the difference between a blip and an outage.
+        # Under `set -e` the hook's own exit status becomes this script's, and
+        # psql exits 2 when its connection to the server goes bad - so a
+        # database that is merely down would exit 2 here with nothing pulled,
+        # built or started. Exit 2 means "the deploy ran and is unhealthy", so
+        # the workflow would then roll back a deploy that never happened.
+        if ! incoming="$("${MIGRATIONS}" added HEAD origin/main)"; then
+            echo "deploy/migrations added failed; cannot tell what this deploy adds. Refusing." >&2
+            exit 1
+        fi
+        if [ -n "${incoming}" ] && [ "${MIGRATION_APPROVED:-0}" != "1" ]; then
+            echo "Incoming commits add migrations:" >&2
+            echo "${incoming}" >&2
+            echo "This deploy was not approved as a migration deploy. Refusing." >&2
+            exit 1
+        fi
+    fi
+fi
+
+mkdir -p "${BACKUP_DIR}"
+
+set -a
+# shellcheck disable=SC1091  # runtime file; not present at lint time
+. ./.env
+set +a
+
+stamp="$(date +%Y%m%d-%H%M%S)"
+dump="${BACKUP_DIR}/pre-deploy-${stamp}.dump"
+
+echo "==> Dumping ${DB} to ${dump}"
+"${DB_COMPOSE[@]}" exec -T db \
+    pg_dump -U "${POSTGRES_USER}" -Fc -d "${DB}" > "${dump}"
+
+# A truncated or empty dump is worse than none, because it looks like a
+# rollback option right up until it is needed.
+if [ ! -s "${dump}" ]; then
+    echo "Dump is empty. Refusing to deploy." >&2
+    rm -f "${dump}"
+    exit 1
+fi
+
+# The revision this dump belongs to. Rolling back means checking this out
+# before restoring, so it travels with the dump rather than in someone's head.
+git rev-parse HEAD > "${dump}.revision"
+echo "    dump belongs to $(cat "${dump}.revision")"
+
+if [ "${HAS_MIGRATIONS}" = "true" ]; then
+    # The SCHEMA revision this dump belongs to, which is what bin/rollback
+    # passes back to the hook. Recorded here, from the database, rather than
+    # derived later: a git sha is not a migration id and the two share no
+    # namespace, and asking an image for its head answers what that image KNOWS
+    # rather than what the schema WAS - which diverge exactly when a rollback is
+    # happening.
+    #
+    # Same reasoning as the `added` call above: the hook's exit status must not
+    # become this script's. A failure here is a refusal, not an unhealthy
+    # deploy.
+    if ! "${MIGRATIONS}" current > "${dump}.migration"; then
+        echo "deploy/migrations current failed. Refusing to deploy." >&2
+        rm -f "${dump}" "${dump}.revision" "${dump}.migration"
+        exit 1
+    fi
+
+    # Same reasoning as the empty-dump guard above: a missing downgrade target
+    # looks like a rollback option right up until tier 2 needs it.
+    if [ ! -s "${dump}.migration" ]; then
+        echo "deploy/migrations current printed nothing. Refusing to deploy." >&2
+        rm -f "${dump}" "${dump}.revision" "${dump}.migration"
+        exit 1
+    fi
+    echo "    schema was at $(cat "${dump}.migration")"
+else
+    echo "    ${APP} declares no migrations in apps.yml - none to record."
+fi
+
+echo "==> Tagging the outgoing image as ${APP}-app:previous"
+if docker image inspect "${APP}-app:local" >/dev/null 2>&1; then
+    docker tag "${APP}-app:local" "${APP}-app:previous"
+else
+    echo "    no current image - first deploy"
+fi
+
+echo "==> Pulling"
+git pull --ff-only
+
+# The pull is exactly where "ran" begins, so every failure after it is an exit
+# 2 rather than an exit 1. `compose up -d --build` migrates the database on
+# start; reporting that as "refused to start, do not roll back" would leave a
+# migrated schema under the old image with the workflow told not to act.
+trap 'exit 2' ERR
+
+echo "==> Building and starting"
+"${COMPOSE[@]}" up -d --build
+
+echo "==> Pruning dumps, keeping ${KEEP}"
+# `|| true`, because this sits under the ERR trap armed at the pull. Deleting
+# old dumps is housekeeping: it cannot make a running deploy unhealthy, and a
+# failing `ls` under `pipefail` must not be able to report "unhealthy, roll
+# back" over it. The deploy's health is what bin/health says it is.
+# shellcheck disable=SC2012
+ls -1t "${BACKUP_DIR}"/pre-deploy-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) \
+    | while read -r old; do rm -f "${old}" "${old}.revision" "${old}.migration"; done \
+    || true
+
+"${COMPOSE[@]}" ps
+
+echo "==> Waiting for health"
+if ! "${PLATFORM_DIR}/bin/health" "${APP}" 180 --app-dir "${APP_DIR}"; then
+    echo "Deploy is unhealthy." >&2
+    echo "Recover with ${PLATFORM_DIR}/bin/rollback ${APP}." >&2
+    # Exit 2, not 1, and the distinction is load-bearing: the workflow reads it
+    # to tell "the deploy ran and the result is unhealthy" - where the database
+    # may have been migrated and bin/rollback must run - from "the script
+    # refused to start", where nothing was touched and rolling back would be
+    # wrong.
+    exit 2
+fi
+
+echo
+echo "==> Done and healthy."

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Poll an application's health endpoint until it answers, or give up.
+#
+#   ./bin/health <app> [timeout-seconds] [--app-dir PATH]      (default 180)
+#
+# Probes from INSIDE the app's container rather than through the tunnel. Going
+# out to the app's public hostname and back would make Cloudflare's
+# availability part of the deploy's success condition, so a tunnel hiccup would
+# roll back perfectly good code - and the tunnel is the one component a deploy
+# cannot fix.
+#
+# The path comes from apps.yml and is never "/". An app that serves a
+# single-page frontend answers 200 on any path from its catch-all route, so a
+# probe against "/" succeeds with the database down. The registered path is the
+# one the app declares says something: the media tracker's opens a session,
+# reads the schema's recorded revision and compares it to the head the running
+# code expects, so it also fails when the schema and the image disagree - the
+# state a half-rolled-back deploy leaves behind and the state every weaker
+# probe reports as healthy.
+
+set -euo pipefail
+
+PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+APP=""
+TIMEOUT=""
+APP_DIR=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
+        -*)        echo "unknown option: $1" >&2; exit 1 ;;
+        *)         if [ -z "${APP}" ]; then APP="$1"; else TIMEOUT="$1"; fi ;;
+    esac
+    shift
+done
+
+[ -n "${APP}" ] || { echo "usage: health <app> [timeout] [--app-dir PATH]" >&2; exit 1; }
+timeout="${TIMEOUT:-180}"
+
+# The registry is the source of truth for what a healthy answer even looks
+# like, so a probe cannot drift from the ingress that routes to the same port.
+#
+# Assigned from a command substitution rather than read from a heredoc, so a
+# failed lookup is a failed assignment under `set -e`. A heredoc would swallow
+# the exit status and probe an empty path.
+registry="$(python3 -c '
+import sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open(sys.argv[2]))["apps"]
+match = [a for a in apps if a["name"] == name]
+if not match:
+    sys.exit(f"{name} is not in apps.yml")
+print(match[0]["port"], match[0]["health_path"])
+' "${APP}" "${PLATFORM_DIR}/apps.yml")"
+read -r PORT HEALTH_PATH <<<"${registry}"
+
+# Apps are cloned beside the platform repository on a development machine and
+# are wherever they are on the box - the media tracker predates the layout and
+# lives at ~/anime_site - so the path is resolvable but overridable.
+APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
+[ -f "${APP_DIR}/docker-compose.prod.yml" ] || {
+    echo "No ${APP_DIR}/docker-compose.prod.yml. Pass --app-dir if this app's checkout is elsewhere." >&2
+    exit 1
+}
+
+# The APP's compose project, and COMPOSE_PROJECT_NAME is deliberately NOT
+# cleared: this reaches into the app's own container. Compose takes the project
+# directory from the compose file's own location, so the app's .env - and the
+# project name in it - are the ones that apply.
+COMPOSE=(docker compose -f "${APP_DIR}/docker-compose.prod.yml")
+
+deadline=$(( $(date +%s) + timeout ))
+
+# An app migrates before it binds, so connection refusals early in the window
+# are normal rather than failure. Only the deadline decides, which is why this
+# loops rather than checking once after a sleep.
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+    if "${COMPOSE[@]}" exec -T app python -c \
+        "import urllib.request; urllib.request.urlopen('http://localhost:${PORT}${HEALTH_PATH}', timeout=5)" \
+        >/dev/null 2>&1; then
+        echo "healthy"
+        exit 0
+    fi
+    sleep 5
+done
+
+echo "${APP} not healthy after ${timeout}s" >&2
+# The logs are the only thing that says WHY, and the caller is a workflow step
+# nobody is watching. Without this the failure reaches the owner as a bare
+# non-zero exit.
+"${COMPOSE[@]}" logs --tail 20 app >&2 || true
+exit 1

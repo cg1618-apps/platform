@@ -168,7 +168,19 @@ stopping the container stops all of them.
 2. `bin/provision <app>` once, when it exists.
 3. A new repository in `cg1618-apps` satisfying the app contract: a container on
    the port this file assigns, the health path it declares here, `DATABASE_URL`
-   from the environment, and a `main` branch that is production.
+   from the environment, a `main` branch that is production, and - if it has
+   migrations at all - an executable `deploy/migrations`.
+
+   `deploy/migrations` is how the platform asks an app about its own schema,
+   because reading a version table, deciding what a deploy adds and reversing a
+   migration are all specific to the tool an app chose. It answers three
+   subcommands: `current` prints the revision the database is at, `added <from>
+   <to>` lists the migration files a deploy would add and prints nothing when
+   there are none, and `downgrade <target>` reverses to that revision and exits
+   non-zero when it refuses. An app that ships no such file declares it has no
+   migrations: `bin/deploy` skips both the recorded revision beside the dump and
+   the approval gate, and `bin/rollback` goes straight from the image swap to
+   freezing.
 
 4. When it can actually serve, one line: `status: live`. That is the change
    that routes its hostname and links it from the apex page.

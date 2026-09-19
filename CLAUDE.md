@@ -56,6 +56,72 @@ contract in `docs/registry.md` exists to keep honest — and `art`'s stopwatch i
 the feature most likely to want a different shape from the rest, so it is the
 one to decide deliberately rather than by inheritance.
 
+## House style, and `media` as the reference
+
+**Four apps written by different sessions at different times will diverge
+unless something says not to.** They should read as one platform: someone
+moving from `food` to `art` should recognise the layout, the naming and the
+shape of the code, and should never have to work out from scratch where a
+thing lives.
+
+**`media` is the reference implementation.** It is the oldest and by far the
+largest, and its conventions are the only ones already proven on this box, so
+it is what the other three copy from. Before inventing a convention — a
+directory layout, a router shape, a settings module, a schema or fixture
+naming scheme, a list page, a component name — **read how `media` does it and
+follow that**. Read the actual file rather than the pattern you expect it to
+have; "Suspect any shape that reads as uniform" in "Rule" applies here more
+than anywhere, because copying a convention you half-remember is how two apps
+end up almost the same.
+
+**This is about conventions, not about the stack.** "Python and PostgreSQL are
+the only guaranteed common ground" above still holds: framework, frontend,
+migration tool and build step remain each app's choice, and this section does
+not quietly make `media`'s choices mandatory. Copying its *conventions* is the
+default; copying its *stack* is a decision each app makes on its merits.
+Where an app diverges deliberately — `art`'s stopwatch is the expected case —
+**record the divergence and its reason in that app's
+`docs/notes/decisions.md`**, so a later reader can tell a decision from an
+accident.
+
+What consistency covers, concretely:
+
+- **Backend** — project layout, module and package naming, route paths and
+  their naming, request and response schema style, the error shape and which
+  status codes mean what, settings and configuration, logging, migration
+  naming.
+- **Frontend** — directory layout, component and file naming, how state is
+  held and data is fetched, routing, the shape of a list page and a detail
+  page, forms, tables, and the loading, error and empty states. Also the
+  visual language: spacing, typography, colour and control style should look
+  like the same product, not four products.
+- **Tests** — where they live, how fixtures are named and what they are for,
+  what a test is called, and what a negative test has to set up to bite (see
+  "Rule").
+- **Tooling** — formatter and linter configuration, the dev script, the
+  worktree helper, CI job names.
+
+**Conventional beats clever.** Prefer the ordinary industry-standard option
+over a shortcut or an invention, so a reader can guess where something lives
+and be right. Code should be clean, readable and reusable: names that say what
+the thing is, functions that do one thing, the third repetition factored out
+rather than the second, and nothing hand-rolled that the framework already
+provides.
+
+**Every feature, rule and behaviour is documented as Markdown in that app's
+`docs/`**, and `media/docs/` is the shape to copy — `api.md`, `data-model.md`,
+`business-rules.md`, `authorization.md`, `entry-types.md`, `testing.md`,
+`notes/decisions.md`. An app need not have every one of those pages, but the
+pages it has should be named and organised the same way. Write them
+present-tense, describing what is true now, and **land the doc change in the
+same commit as the behaviour change** — a behaviour change with no doc change
+is an unfinished one.
+
+That is not a reopening of `docs/PROGRESS.md`. See "Tracking work": status
+lives in the branch, the pull request and the commits, working scaffolding
+under `docs/superpowers/` is deleted when its task ends, and what survives
+into `docs/` is the present-tense page.
+
 ## Verifying a file's mode
 
 **`git ls-files` reads the index. `git ls-tree HEAD` reads the commit.** Only the

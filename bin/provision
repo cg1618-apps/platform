@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Create an application's database and role on the shared PostgreSQL.
+#
+#   ./bin/provision <app> [--rotate] [--env-file PATH]
+#
+# Run once per app, on the box. The password is generated here and written
+# straight into the app's .env: never echoed, never passed as a command
+# argument - argv is readable in `ps` by every user on the machine - and never
+# leaving the box. Its correctness is proven by the app starting, not by anyone
+# reading it.
+#
+# There is deliberately no un-provision. Removing an app's data is an act with
+# a dump taken first, not a flag on the script that creates it.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+APP=""
+ROTATE=0
+ENV_FILE=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --rotate)   ROTATE=1 ;;
+        --env-file) shift; ENV_FILE="${1:?--env-file needs a path}" ;;
+        -*)         echo "unknown option: $1" >&2; exit 1 ;;
+        *)          APP="$1" ;;
+    esac
+    shift
+done
+
+[ -n "${APP}" ] || { echo "usage: provision <app> [--rotate] [--env-file PATH]" >&2; exit 1; }
+
+# The registry is the source of truth for the database name, so a typo cannot
+# create a database that no generated file knows about.
+DB="$(python3 -c '
+import sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open("apps.yml"))["apps"]
+match = [a for a in apps if a["name"] == name]
+if not match:
+    sys.exit(f"{name} is not in apps.yml")
+if match[0]["database"] is None:
+    sys.exit(f"{name} declares no database")
+print(match[0]["database"])
+' "${APP}")"
+
+# Apps are cloned beside this repository on a development machine and are
+# wherever they are on the box - the media tracker predates the layout and
+# lives at ~/anime_site - so the path is resolvable but overridable.
+if [ -z "${ENV_FILE}" ]; then
+    ENV_FILE="${APPS_DIR:-${HOME}}/${APP}/.env"
+fi
+[ -f "${ENV_FILE}" ] || {
+    echo "No ${ENV_FILE}. Pass --env-file if this app's checkout is elsewhere." >&2
+    exit 1
+}
+
+# env -u COMPOSE_PROJECT_NAME: harmless here, load-bearing everywhere this
+# pattern is copied. A script that has sourced an app's .env has that variable
+# exported, and it beats the .env beside this compose file.
+COMPOSE=(env -u COMPOSE_PROJECT_NAME docker compose -f docker-compose.prod.yml)
+
+role_exists="$("${COMPOSE[@]}" exec -T db psql -U postgres -tAc \
+    "SELECT 1 FROM pg_roles WHERE rolname = '${DB}'" | tr -d '[:space:]')"
+
+if [ -n "${role_exists}" ] && [ "${ROTATE}" -ne 1 ]; then
+    echo "Role ${DB} already exists. Pass --rotate to replace its password." >&2
+    echo "Rotating is not free: the app keeps the old password in its .env" >&2
+    echo "until it is restarted, and fails on the next connection until then." >&2
+    exit 1
+fi
+
+# Into a file, mode 600, and nowhere else.
+secret="$(mktemp)"
+chmod 600 "${secret}"
+trap 'rm -f "${secret}"' EXIT
+openssl rand -base64 32 | tr -d '\n=+/' > "${secret}"
+
+# PGPASSWORD rather than an argument, and the SQL is read from stdin so the
+# password never appears in a command line at all.
+if [ -n "${role_exists}" ]; then
+    printf "ALTER ROLE %s WITH PASSWORD '%s';\n" "\"${DB}\"" "$(cat "${secret}")" \
+        | "${COMPOSE[@]}" exec -T db psql -U postgres -v ON_ERROR_STOP=1 -q
+    echo "rotated the password for role ${DB}"
+else
+    printf "CREATE ROLE %s LOGIN PASSWORD '%s';\n" "\"${DB}\"" "$(cat "${secret}")" \
+        | "${COMPOSE[@]}" exec -T db psql -U postgres -v ON_ERROR_STOP=1 -q
+    "${COMPOSE[@]}" exec -T db psql -U postgres -v ON_ERROR_STOP=1 -q \
+        -c "CREATE DATABASE \"${DB}\" OWNER \"${DB}\""
+    echo "created database ${DB} and role ${DB}"
+fi
+
+# Rewrite the three keys in the app's .env, touching nothing else in it.
+python3 - "${ENV_FILE}" "${DB}" "${secret}" <<'PY'
+import pathlib
+import sys
+
+env_path = pathlib.Path(sys.argv[1])
+db = sys.argv[2]
+secret = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").strip()
+
+wanted = {"POSTGRES_USER": db, "POSTGRES_PASSWORD": secret, "POSTGRES_DB": db}
+lines, seen = [], set()
+for line in env_path.read_text(encoding="utf-8").splitlines():
+    key = line.split("=", 1)[0] if "=" in line else None
+    if key in wanted:
+        lines.append(f"{key}={wanted[key]}")
+        seen.add(key)
+    else:
+        lines.append(line)
+for key, value in wanted.items():
+    if key not in seen:
+        lines.append(f"{key}={value}")
+env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+chmod 600 "${ENV_FILE}"
+
+echo "wrote POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB into ${ENV_FILE}"
+echo
+echo "The app still has to be restarted to pick them up, and DATABASE_URL in"
+echo "that file - if it sets one - is NOT rewritten: it is the app's own shape"
+echo "and may carry a driver, a schema or options this script cannot guess."

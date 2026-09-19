@@ -59,15 +59,27 @@ want = sys.argv[1]
 apps = yaml.safe_load(open(sys.argv[2]))["apps"]
 live = [a for a in apps if a.get("status") == "live"]
 if want != "--all":
-    live = [a for a in live if a["name"] == want]
-    if not live:
-        sys.exit(f"{want} is not a live app in apps.yml")
+    named = [a for a in apps if a["name"] == want]
+    if not named:
+        sys.exit(f"{want} is not in apps.yml")
+    # In the registry but not live is a legitimate no-op, not a
+    # failure: a planned app is unrouted by construction. Saying
+    # otherwise would fail the deploy of every app before the
+    # release that publishes its hostname.
+    live = [a for a in named if a.get("status") == "live"]
 for a in live:
     line = a["name"] + " " + a["hostname"] + " " + a["exposure"] + chr(10)
     sys.stdout.buffer.write(line.encode())
 ' "${APP:---all}" "${PLATFORM_DIR}/apps.yml")"
 
-[ -n "${targets}" ] || { echo "No live apps to check." >&2; exit 1; }
+if [ -z "${targets}" ]; then
+    if [ "${ALL}" -eq 1 ]; then
+        echo "No live apps to check." >&2
+        exit 1
+    fi
+    echo "${APP} is not live in apps.yml - nothing routed to it, nothing to check."
+    exit 0
+fi
 
 failed=0
 

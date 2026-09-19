@@ -52,6 +52,17 @@ def run_steps(job: dict) -> list[dict]:
     return [step for step in job["steps"] if "run" in step]
 
 
+def rollback_step(job: dict) -> dict:
+    """The rollback step, found by what it runs, not by position.
+
+    It used to be steps[1] - the step straight after the deploy. Adding
+    the exposure check between them broke three tests that had nothing
+    to do with exposure, which is what a positional lookup buys you."""
+    found = [s for s in run_steps(job) if "bin/rollback" in s["run"]]
+    assert len(found) == 1, f"expected one rollback step, found {len(found)}"
+    return found[0]
+
+
 # --- the trigger ------------------------------------------------------------
 
 
@@ -228,7 +239,8 @@ def test_the_rollback_runs_on_exit_two_and_only_on_exit_two():
     # mistake.
     for name, job in deploy_jobs(workflow()).items():
         steps = run_steps(job)
-        deploy, rollback = steps[0], steps[1]
+        deploy = steps[0]
+        rollback = rollback_step(job)
         assert deploy["id"] == "deploy", name
         assert "bin/rollback" in rollback["run"], name
         assert rollback["if"] == "failure() && steps.deploy.outputs.rc == '2'", name
@@ -357,7 +369,7 @@ def test_a_frozen_rollback_is_distinguishable_from_an_ordinary_failure():
     # about the dump. Without this the step is red like any other red step,
     # and a frozen app is something nobody is told about.
     for name, job in deploy_jobs(workflow()).items():
-        body = run_steps(job)[1]["run"]
+        body = rollback_step(job)["run"]
         assert '[ "${rc}" -eq 3 ]' in body, name
         assert "::error::" in body, name
         assert "pre-deploy dump" in body, name
@@ -479,3 +491,35 @@ def test_the_documented_caller_deploys_main_and_only_main():
     caller = caller_example()
     assert set(caller[True]) == {"push"}
     assert caller[True]["push"]["branches"] == ["main"]
+
+
+def test_the_deploy_checks_exposure_after_it_succeeds():
+    """Both lanes verify what the world can reach, once the app is up.
+
+    apps.yml only ever stated intent, and art.cg1618.com served an
+    unauthenticated 200 for twenty minutes while the registry called it
+    cloudflare-access.
+    """
+    body = DEPLOY_APP.read_text(encoding="utf-8")
+    assert body.count("bin/check-exposure") == 2, "one per deploy lane"
+    assert body.count("- name: The exposure must match the registry") == 2
+
+
+def test_the_exposure_check_never_triggers_a_rollback():
+    """A missing Access policy is not fixed by reverting the app's code.
+
+    The rollback is gated on the DEPLOY step's own rc, so a failure in the
+    exposure step fails the job and leaves production alone. If the rollback
+    were gated on `failure()` instead, an exposure mismatch would revert a
+    perfectly good deploy - and the app would still be exposed afterwards.
+    """
+    body = DEPLOY_APP.read_text(encoding="utf-8")
+    assert "steps.deploy.outputs.rc == '2'" in body
+    # The check must come after the deploy step it depends on, and before the
+    # rollback, so the ordering is what the file actually says.
+    for lane in body.split("- name: Deploy")[1:]:
+        exposure = lane.find("The exposure must match the registry")
+        rollback = lane.find("- name: Roll back")
+        assert exposure != -1, "a deploy lane with no exposure check"
+        assert rollback != -1, "a deploy lane with no rollback"
+        assert exposure < rollback, "the exposure check belongs before the rollback"

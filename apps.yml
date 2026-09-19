@@ -34,7 +34,12 @@ apps:
     port: 8002
     database: travel
     repo: git@github.com:cg1618-apps/travel.git
-    exposure: public
+    # Private by default, and authenticated at the edge rather than in the app:
+    # one user, no accounts, nothing to log into. NOT on the never-public list,
+    # because sharing a single trip is a change this app is expected to want -
+    # and a guard that has to be deleted to allow an intended change is a speed
+    # bump, not a protection.
+    exposure: cloudflare-access
     health_path: /health
     status: planned
     description: Packing and buying lists, transport information, and the current trip
@@ -44,7 +49,11 @@ apps:
     port: 8003
     database: art
     repo: git@github.com:cg1618-apps/art.git
-    exposure: public
+    # Same as travel: private now, and expected to publish some finished work
+    # later. The flip from cloudflare-access to public moves the gate from
+    # Cloudflare into code, so the app's visibility checks must already work -
+    # and be tested for refusal - before it happens.
+    exposure: cloudflare-access
     health_path: /health
     status: planned
     description: Practice records, references, schedule, and the drawing roadmap

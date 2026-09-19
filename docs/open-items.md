@@ -125,6 +125,13 @@ thing that will. Nothing before it does: the gate is skipped entirely when
 `classify` finds no migration, so every deploy so far has gone down the
 ungated lane and proven nothing about this one.
 
+**That first deploy is already on the way, and nobody scheduled it as a
+test.** `travel` has `alembic/versions/0002_packing.py` on `feat/packing-lists`
+and `food` has its ingredients revision on `feat/ingredients`; `origin/main`
+holds only the baseline in both. So whichever of those two releases first is
+the run that exercises these calls, and it exercises them during a release
+rather than a rehearsal.
+
 Not blocking. Worth knowing before the first migration goes out rather than
 during it, and worth doing deliberately — arm an app's environment with
 `bin/provision` on a repository that has none, and watch the first gated

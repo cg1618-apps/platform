@@ -9,6 +9,9 @@
 # is what stops a second app taking them - but only a `live` app is routed by
 # the tunnel. Routing a planned app would publish a hostname that answers 502.
 #
+# `path` is optional and almost always absent: a checkout lives at
+# `<apps dir>/<name>` unless it does not. `media` predates the layout.
+#
 # `migrations` is a declaration, not a description. `true` means the app ships
 # an executable `deploy/migrations`, and bin/deploy REFUSES when it cannot find
 # one rather than deploying with no approval gate and no rollback target.
@@ -27,6 +30,11 @@ apps:
     migrations: true
     status: live
     description: Media tracker & database
+    # This app predates the layout: its checkout on the box is ~/anime_site,
+    # not ~/media. The path belongs here rather than in a workflow input,
+    # because everything else bin/deploy acts on is registry-derived - a
+    # caller-supplied path could name `travel` and hand it media's checkout.
+    path: "~/anime_site"
 
   - name: food
     hostname: food.cg1618.com

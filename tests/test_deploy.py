@@ -523,3 +523,49 @@ def test_the_image_swap_freezes_on_failure():
     for needle in ('git checkout --quiet "${previous_rev}"', "docker tag"):
         for line in command_lines(ROLLBACK, needle):
             assert "|| freeze" in line, line
+
+
+def test_the_checkout_path_comes_from_the_registry_not_from_a_caller():
+    # It was a workflow input once, and a caller could then name one app and
+    # hand it another's checkout: the database name came from the registry and
+    # the code came from the input, so bin/deploy would dump one app and
+    # deploy another. Everything these scripts act on is registry-derived now.
+    for script in SCRIPTS:
+        body = code(script)
+        assert '"path"' in body, script
+        assert 'REG_PATH' in body, script
+        # --app-dir still wins, for running these by hand against a checkout
+        # the registry knows nothing about.
+        assert body.index("--app-dir") < body.index('[ -z "${APP_DIR}" ]'), script
+
+
+def test_a_home_relative_registry_path_is_expanded():
+    # The shell does not expand a tilde that arrives inside a variable, so a
+    # literal "~/anime_site" would become a directory called "~" beside the
+    # runner's cwd - and the checkout guard would then say "no checkout at
+    # ~/anime_site", which is exactly what the registry says there is.
+    #
+    # The mechanism, not its spelling: strip a literal "~/" off the front and
+    # prepend HOME when that actually removed something. It was a `case` with
+    # a quoted "~/" pattern, which shellcheck reads (SC2088) as a tilde
+    # somebody expected the shell to expand - the very mistake this avoids.
+    for script in SCRIPTS:
+        body = code(script)
+        assert r'stripped="${REG_PATH#\~/}"' in body, script
+        assert '[ "${stripped}" != "${REG_PATH}" ]' in body, script
+        assert 'APP_DIR="${HOME}/${stripped}"' in body, script
+        # And the other arm: an absolute path is used as it stands.
+        assert 'APP_DIR="${REG_PATH}"' in body, script
+
+
+def test_the_freeze_message_the_workflow_greps_for_is_exactly_that_string():
+    # deploy-app.yml's rollback step pulls the dump out of this script's
+    # output with `sed -n 's/.*pre-deploy dump: *//p'` so the ::error:: it
+    # raises can name it. Rename the message and the annotation degrades to
+    # "see the log above" - silently, with every other test still green,
+    # in the one situation where a person is being summoned.
+    assert "pre-deploy dump: " in text(ROLLBACK)
+    workflow = (ROOT / ".github" / "workflows" / "deploy-app.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "pre-deploy dump: " in workflow

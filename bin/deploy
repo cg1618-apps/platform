@@ -72,13 +72,35 @@ if entry["database"] is None:
     sys.exit(f"{name} declares no database")
 if "migrations" not in entry:
     sys.exit(f"{name} does not declare migrations: in apps.yml")
-print(entry["database"], str(entry["migrations"]).lower())
+print(entry["database"], str(entry["migrations"]).lower(), entry.get("path", "-"))
 ' "${APP}" "${PLATFORM_DIR}/apps.yml")"
-read -r DB HAS_MIGRATIONS <<<"${registry}"
+read -r DB HAS_MIGRATIONS REG_PATH <<<"${registry}"
 
-# Apps are cloned beside the platform repository on a development machine and
-# are wherever they are on the box - the media tracker predates the layout and
-# lives at ~/anime_site - so the path is resolvable but overridable.
+# Where the checkout is, in precedence order: --app-dir on the command line,
+# the registry's optional `path`, then <apps dir>/<name>. The path used to be
+# a caller-supplied workflow input, which let a deploy name one app and point
+# at another's checkout - the database came from the registry and the code did
+# not, so the dump and the thing deployed were different apps. It is
+# registry-derived now, like everything else this script acts on.
+#
+# "-" is the registry's "absent". `path` forbids whitespace in the schema, so
+# the lookup's fields can be word-split, and "-" is not a legal value under it.
+if [ -z "${APP_DIR}" ] && [ "${REG_PATH}" != "-" ]; then
+    # A registry path is absolute, or starts with a literal "~/" - the
+    # two characters, as apps.yml spells them. The shell does not expand
+    # a tilde that arrives inside a variable, so the prefix is stripped
+    # and HOME prepended here.
+    #
+    # Strip-and-compare rather than a `case`, because a quoted "~/"
+    # pattern reads to shellcheck (SC2088) as a tilde someone expected
+    # to expand - which is the very mistake this code exists to avoid.
+    stripped="${REG_PATH#\~/}"
+    if [ "${stripped}" != "${REG_PATH}" ]; then
+        APP_DIR="${HOME}/${stripped}"
+    else
+        APP_DIR="${REG_PATH}"
+    fi
+fi
 APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
 [ -d "${APP_DIR}/.git" ] || {
     echo "No checkout at ${APP_DIR}. Pass --app-dir if it is elsewhere." >&2

@@ -73,6 +73,10 @@
               "planned",
               "live"
             ]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(~/|/)\\S+$"
           }
         }
       }

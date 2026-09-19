@@ -20,6 +20,7 @@ apps:
     health_path: /api/health
     migrations: true         # does this app ship deploy/migrations?
     description: Media tracker & database
+    path: "~/anime_site"     # optional; only when the checkout is not <apps dir>/<name>
 ```
 
 `status` separates a **claim** from a **running service**. An entry reserves the
@@ -27,6 +28,20 @@ hostname, the port and the database name the moment an app is planned — which 
 what stops a second app taking them — but only a `live` app is routed by the
 tunnel and linked from the apex page. Routing a planned app would publish a
 hostname that answers 502, which is worse than one that does not resolve.
+
+`path` is **optional and almost always absent**: a checkout lives at
+`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>` — unless it does not, and
+`media` is the one that does not, because it predates the layout and sits at
+`~/anime_site`. A leading `~/` means `$HOME`; anything else must be absolute,
+and the schema forbids whitespace in the value.
+
+It lives here rather than being passed in because **everything else the deploy
+scripts act on is registry-derived**. It was a workflow input once, and a
+caller could then name `travel` and hand it media's checkout: the database name
+came from the registry and the code came from the input, so `bin/deploy` would
+dump one app and deploy another. One source cannot disagree with itself.
+`--app-dir` still exists on all three scripts for running them by hand against
+a checkout the registry knows nothing about.
 
 `health_path` is declared rather than assumed because the applications do not
 share a stack. `/api/health` is the media tracker's answer — it opens a real
@@ -216,6 +231,31 @@ stopping the container stops all of them.
      the name.
    - **`DATABASE_URL` from the environment**, and a `main` branch that is
      production.
+   - **A `production` environment in the app's repository, with the owner as a
+     required reviewer.** This is the approval gate the deploy workflow's
+     migration lane waits at, and it is the only item of the contract that
+     exists nowhere in either repository's files. Referencing an environment
+     that does not exist **does not fail**: GitHub creates it on first use,
+     with no protection rules, and runs the job immediately — so an app that
+     skipped this would deploy a schema migration unattended, in a green run,
+     with the gate present in the workflow and meaning nothing.
+
+     `bin/provision` arms it, and prints the command rather than failing when
+     `gh` is missing or not logged in on the box. To do it by hand — and it
+     must be this command, reviewers included, because a bare `PUT` creates
+     the environment with **zero** protection rules, which is exactly the
+     state this item exists to prevent:
+
+     ```bash
+     gh api -X PUT repos/cg1618-apps/<app>/environments/production        -F 'prevent_self_review=false'        -F 'reviewers[][type]=User' -F "reviewers[][id]=$(gh api user --jq .id)"
+     ```
+
+     `-F` rather than `-f` on every one of them: `-f` sends each value as a
+     JSON string, and `prevent_self_review` is a typed boolean, so the API
+     answers 422. The workflow's `verify-gate` job asks the API
+     whether the environment really has required reviewers and refuses the
+     deploy when it does not, so an app that was never armed fails loudly
+     instead of deploying.
    - **An executable `deploy/migrations` if — and only if — its `apps.yml`
      entry says `migrations: true`.** The two must agree: `bin/deploy` refuses
      when the registry declares migrations and no runnable hook is there, and
@@ -249,11 +289,75 @@ stopping the container stops all of them.
    The hook is called with **`PLATFORM_DIR` exported**, naming the platform
    checkout. A hook that needs the shared PostgreSQL — `current` does — reaches
    it through `${PLATFORM_DIR}/docker-compose.prod.yml` rather than guessing a
-   path that is right until the checkout moves.
+   path that is right until the checkout moves. `bin/deploy`, `bin/rollback`
+   and the workflow's `classify` job all export it.
+
+   **`added` must answer from the git checkout alone — no database, no
+   containers.** Only `current` and `downgrade` may touch the database.
+   `added` is asked on a **GitHub-hosted runner** as well as on the box, where
+   there is no PostgreSQL, no compose project and no `.env`. The first app
+   whose `added` shells into compose would fail there on every push, `classify`
+   would gate on the failure, and every one of that app's deploys would need
+   an approval for good — correct, in a green run, and permanent.
 
    An app whose entry says `migrations: false` has no hook and needs none:
    `bin/deploy` skips both the recorded revision beside the dump and the
    approval gate, and `bin/rollback` goes straight to the image swap.
+
+   - **A deploy workflow that calls the platform's, and does nothing itself.**
+     `.github/workflows/deploy.yml` in the app repository is one decision and
+     nothing else — copy it exactly:
+
+     ```yaml
+     name: Deploy
+
+     # main only. main is production, and the box's checkout of this app
+     # tracks main, so this trigger and that checkout are the same decision
+     # stated twice.
+     on:
+       push:
+         branches:
+           - main
+
+     jobs:
+       deploy:
+         uses: cg1618-apps/platform/.github/workflows/deploy-app.yml@main
+         with:
+           app: travel
+     ```
+
+     `app:` is the name spelled exactly as this file spells it; everything
+     else — the classify job, the approval gate, the per-app concurrency
+     group, the exit-2-only rollback — lives in the reusable workflow and is
+     not an app's to restate. One optional input exists, `runs_on`, a JSON
+     array of runner labels. A checkout that is not at `<apps dir>/<name>` is
+     the registry's `path:` key, not a caller's input — see above.
+
+     **The app's workflow must not name the self-hosted runner itself**, and
+     must not carry a `pull_request` trigger anywhere near this job. The
+     reusable workflow is `workflow_call` only for that reason; a caller that
+     adds a trigger of its own hands the same catastrophe back.
+
+     **Nothing enforces that, and it is worth being exact about why.**
+     `tests/test_deploy_workflow.py` can only read the workflows in *this*
+     repository; the platform cannot see, let alone fail, what an app repo
+     commits. A fork's pull request against an app repository runs in the base
+     repository's context, so a `pull_request` trigger there would reach the
+     box. Today the rule is **honour-system: a line in this document and a
+     line in the workflow's header comment.**
+
+     Three things would actually enforce it, none of them done:
+
+     - a **runner group restricted to selected repositories**, so a repo that
+       was never listed cannot resolve the `homelab` label at all;
+     - an **organisation Actions policy requiring approval for all outside
+       collaborators**, so a fork's pull request does not run unattended;
+     - **shipping the trigger test to app repositories** as a reusable CI
+       workflow, so each app fails its own pull request the way the platform
+       fails its own.
+
+     The first two are settings rather than code, and the third is the only
+     one this repository can make true by itself.
 
 4. When it can actually serve, one line: `status: live`. That is the change
    that routes its hostname and links it from the apex page.

@@ -68,10 +68,11 @@ if want != "--all":
     # release that publishes its hostname.
     live = [a for a in named if a.get("status") == "live"]
 for a in live:
-    # Paths are joined with commas and default to "-": the reader is a
-    # `read -r` on whitespace, so a field must never be empty or contain a
-    # space. The schema forbids neither directly, but every path begins with
-    # "/" and a comma in a URL path would be percent-encoded.
+    # Paths are joined with commas and default to "-": the shell reads these
+    # lines field by field on whitespace, so a field must never be empty or
+    # contain a space. No backticks in here either - this whole block is one
+    # single-quoted shell word, and shellcheck reads a backtick in it as a
+    # command substitution that will not expand (SC2016).
     gated = ",".join(a.get("gated_paths") or []) or "-"
     line = (
         a["name"] + " " + a["hostname"] + " " + a["exposure"] + " " + gated + chr(10)

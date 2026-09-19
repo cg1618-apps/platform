@@ -258,10 +258,16 @@ jobs:
           # part-way and named the dump a human must decide about. Every other
           # non-zero exit is a step that went red like any other, and a red
           # step nobody distinguishes is a frozen app nobody notices.
+          # tee, not a redirect: a rollback that hangs or is cancelled shows
+          # nothing at all if its output is buffered into a file and cat'd at
+          # the end, and a hung rollback is exactly when somebody is watching.
+          # `set -o pipefail` so rc is the SCRIPT's exit code and not tee's -
+          # Actions' `bash` shell sets it, and the bare `run` default does
+          # not, so it is stated here rather than assumed.
+          set -o pipefail
           log="$(mktemp)"
           rc=0
-          ./bin/rollback "${APP}" > "${log}" 2>&1 || rc=$?
-          cat "${log}"
+          ./bin/rollback "${APP}" 2>&1 | tee "${log}" || rc=$?
           if [ "${rc}" -eq 3 ]; then
             dump="$(sed -n 's/.*pre-deploy dump: *//p' "${log}" | head -1)"
             echo "::error::FROZEN - ${APP} needs a person. Pre-deploy dump: ${dump:-see the log above}. Restoring it is a human decision; it discards every write since."
@@ -285,9 +291,14 @@ jobs:
   # worked - and would say nothing in the one case this exists for, where
   # there was no gate to wait at.
   #
-  # `contents: read` is what a public repository needs to read its own
-  # environments. If the API answers 403 on a repository where that is not
-  # enough, add `administration: read` here.
+  # `contents: read` is expected to be enough: these repositories are public
+  # and the endpoint is a read. If it proves not to be, DO NOT reach for
+  # `administration: read` - that scope is not grantable to GITHUB_TOKEN in a
+  # workflow `permissions:` block, so adding it produces a syntax error
+  # during an outage rather than a fix. The remedy would be a personal access
+  # token in a secret, which every CALLER would then have to supply and which
+  # this workflow's token bounds do not cover - so it complicates the caller
+  # contract, and is worth measuring a real 403 before reaching for.
   verify-gate:
     needs: classify
     if: needs.classify.outputs.migration == 'true'
@@ -362,10 +373,16 @@ jobs:
           # part-way and named the dump a human must decide about. Every other
           # non-zero exit is a step that went red like any other, and a red
           # step nobody distinguishes is a frozen app nobody notices.
+          # tee, not a redirect: a rollback that hangs or is cancelled shows
+          # nothing at all if its output is buffered into a file and cat'd at
+          # the end, and a hung rollback is exactly when somebody is watching.
+          # `set -o pipefail` so rc is the SCRIPT's exit code and not tee's -
+          # Actions' `bash` shell sets it, and the bare `run` default does
+          # not, so it is stated here rather than assumed.
+          set -o pipefail
           log="$(mktemp)"
           rc=0
-          ./bin/rollback "${APP}" > "${log}" 2>&1 || rc=$?
-          cat "${log}"
+          ./bin/rollback "${APP}" 2>&1 | tee "${log}" || rc=$?
           if [ "${rc}" -eq 3 ]; then
             dump="$(sed -n 's/.*pre-deploy dump: *//p' "${log}" | head -1)"
             echo "::error::FROZEN - ${APP} needs a person. Pre-deploy dump: ${dump:-see the log above}. Restoring it is a human decision; it discards every write since."

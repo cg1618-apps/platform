@@ -128,9 +128,11 @@ def test_classify_runs_on_github_rather_than_the_box():
 
 def test_concurrency_is_per_app_and_never_cancels():
     concurrency = workflow()["concurrency"]
-    # Per app: two apps deploy at once; one app never deploys over itself. A
-    # constant group would serialise unrelated deploys, and a group without
-    # the app in it is that same constant by another name.
+    # Per app. NOT because it lets two apps deploy at once - a concurrency
+    # group is already scoped to its repository and each app has its own, so
+    # two apps never shared a group. What naming the app buys is that this
+    # group cannot collide with another in the SAME repository, and that a
+    # queued run says which app it is waiting for.
     assert "inputs.app" in concurrency["group"], concurrency["group"]
     assert concurrency["group"] == "deploy-${{ inputs.app }}"
     # A cancelled run can leave the box between `git pull` and

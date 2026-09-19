@@ -548,3 +548,16 @@ def test_a_home_relative_registry_path_is_expanded():
         body = code(script)
         assert '"~/"*)' in body, script
         assert r'${HOME}/${REG_PATH#\~/}' in body, script
+
+
+def test_the_freeze_message_the_workflow_greps_for_is_exactly_that_string():
+    # deploy-app.yml's rollback step pulls the dump out of this script's
+    # output with `sed -n 's/.*pre-deploy dump: *//p'` so the ::error:: it
+    # raises can name it. Rename the message and the annotation degrades to
+    # "see the log above" - silently, with every other test still green,
+    # in the one situation where a person is being summoned.
+    assert "pre-deploy dump: " in text(ROLLBACK)
+    workflow = (ROOT / ".github" / "workflows" / "deploy-app.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "pre-deploy dump: " in workflow

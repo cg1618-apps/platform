@@ -240,10 +240,19 @@ stopping the container stops all of them.
      skipped this would deploy a schema migration unattended, in a green run,
      with the gate present in the workflow and meaning nothing.
 
-     `bin/provision` arms it (`gh api -X PUT
-     repos/cg1618-apps/<app>/environments/production`, the owner as reviewer),
-     and prints the command rather than failing when `gh` is missing or not
-     logged in on the box. The workflow's `verify-gate` job asks the API
+     `bin/provision` arms it, and prints the command rather than failing when
+     `gh` is missing or not logged in on the box. To do it by hand — and it
+     must be this command, reviewers included, because a bare `PUT` creates
+     the environment with **zero** protection rules, which is exactly the
+     state this item exists to prevent:
+
+     ```bash
+     gh api -X PUT repos/cg1618-apps/<app>/environments/production        -F 'prevent_self_review=false'        -F 'reviewers[][type]=User' -F "reviewers[][id]=$(gh api user --jq .id)"
+     ```
+
+     `-F` rather than `-f` on every one of them: `-f` sends each value as a
+     JSON string, and `prevent_self_review` is a typed boolean, so the API
+     answers 422. The workflow's `verify-gate` job asks the API
      whether the environment really has required reviewers and refuses the
      deploy when it does not, so an app that was never armed fails loudly
      instead of deploying.

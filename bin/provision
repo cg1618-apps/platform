@@ -46,21 +46,37 @@ if match[0]["database"] is None:
 print(match[0]["database"])
 ' "${APP}")"
 
-# owner/repo, from the registry rather than from the app's name: the two are
-# the same today and the registry is what every other lookup here trusts.
-SLUG="$(python3 -c '
+# owner/repo, and the checkout's path where the registry overrides it. Both
+# from the registry rather than from the app's name: the two coincide today,
+# and the registry is what every other lookup here trusts.
+#
+# "-" is the registry's "absent", as in bin/deploy. `path` forbids whitespace
+# in the schema, which is what makes these two fields word-splittable.
+registry="$(python3 -c '
 import re, sys, yaml
 name = sys.argv[1]
 apps = yaml.safe_load(open("apps.yml"))["apps"]
 entry = [a for a in apps if a["name"] == name][0]
-print(re.sub(r"^git@github\.com:|\.git$", "", entry["repo"]))
+print(re.sub(r"^git@github\.com:|\.git$", "", entry["repo"]), entry.get("path", "-"))
 ' "${APP}")"
+read -r SLUG REG_PATH <<<"${registry}"
 
-# Apps are cloned beside this repository on a development machine and are
-# wherever they are on the box - the media tracker predates the layout and
-# lives at ~/anime_site - so the path is resolvable but overridable.
+# Where the checkout is, in precedence order: --env-file, the registry's
+# optional `path`, then <apps dir>/<name>. bin/deploy, bin/health and
+# bin/rollback all resolve it this way. This script reading the registry for
+# the database name while GUESSING the directory is how `provision media`
+# came to look in ~/media/.env for an app whose checkout is ~/anime_site.
 if [ -z "${ENV_FILE}" ]; then
-    ENV_FILE="${APPS_DIR:-${HOME}}/${APP}/.env"
+    APP_DIR="${APPS_DIR:-${HOME}}/${APP}"
+    if [ "${REG_PATH}" != "-" ]; then
+        # A leading ~/ is the registry's spelling of $HOME. The shell does
+        # not expand a tilde that arrives inside a variable.
+        case "${REG_PATH}" in
+            "~/"*) APP_DIR="${HOME}/${REG_PATH#\~/}" ;;
+            *)     APP_DIR="${REG_PATH}" ;;
+        esac
+    fi
+    ENV_FILE="${APP_DIR}/.env"
 fi
 [ -f "${ENV_FILE}" ] || {
     echo "No ${ENV_FILE}. Pass --env-file if this app's checkout is elsewhere." >&2
@@ -146,7 +162,7 @@ echo
 # logged in.
 arm_env_cmd() {
     echo "  gh api -X PUT repos/${SLUG}/environments/production \\"
-    echo "    -f 'prevent_self_review=false' \\"
+    echo "    -F 'prevent_self_review=false' \\"
     echo "    -F 'reviewers[][type]=User' -F \"reviewers[][id]=\$(gh api user --jq .id)\""
 }
 
@@ -158,7 +174,7 @@ elif ! reviewer_id="$(gh api user --jq .id 2>/dev/null)" || [ -z "${reviewer_id}
     echo "    gh is not logged in here. Run this from a machine that is:"
     arm_env_cmd
 elif gh api -X PUT "repos/${SLUG}/environments/production" \
-        -f 'prevent_self_review=false' \
+        -F 'prevent_self_review=false' \
         -F 'reviewers[][type]=User' -F "reviewers[][id]=${reviewer_id}" \
         >/dev/null; then
     echo "    ${SLUG} environment 'production' now requires a reviewer."

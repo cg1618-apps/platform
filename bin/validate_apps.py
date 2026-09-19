@@ -7,6 +7,12 @@ exposure rule is about which value is allowed for which app, which a schema
 could only express as an enum per app name, restated every time an app is
 added.
 
+`gated_paths` needs a rule here for the same reason as exposure: which values
+are allowed depends on another field of the same entry, which a schema can only
+express by restating the entry. What it protects lives elsewhere too - bin/deploy
+refuses when this list and the app's own deploy/gated-paths disagree, and
+bin/check-exposure probes each path from the open internet.
+
 `migrations` needs no rule here - it is per-entry and boolean, so the schema's
 `required` list is the whole check. It is listed in this docstring anyway
 because the thing it protects is not in this file: bin/deploy and bin/rollback
@@ -59,6 +65,27 @@ def validate(registry: dict) -> list[str]:
                 f"{a['name']} is exposure 'public'; it holds a different class "
                 f"of data and must be 'cloudflare-access' or 'lan-only'"
             )
+        # `gated_paths` only means anything on a public app. A
+        # cloudflare-access hostname is gated at every path already, and
+        # lan-only has no ingress rule at all - so declaring a gated prefix
+        # on either is a statement about a gate that is not where the entry
+        # says it is, and bin/check-exposure would "confirm" it by finding
+        # the redirect the whole hostname already returns.
+        gated = a.get("gated_paths") or []
+        if gated and a["exposure"] != "public":
+            problems.append(
+                f"{a['name']} declares gated_paths but is exposure "
+                f"{a['exposure']!r}; that value already gates every path, so "
+                f"a prefix here would be confirmed by the hostname's own gate"
+            )
+        for path in gated:
+            if path == "/":
+                problems.append(
+                    f"{a['name']} declares gated_paths '/'; gating every path "
+                    f"is exposure 'cloudflare-access', not a public app with a "
+                    f"prefix"
+                )
+
         expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
         if a["repo"] != expected_repo:
             problems.append(

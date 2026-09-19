@@ -68,7 +68,15 @@ if want != "--all":
     # release that publishes its hostname.
     live = [a for a in named if a.get("status") == "live"]
 for a in live:
-    line = a["name"] + " " + a["hostname"] + " " + a["exposure"] + chr(10)
+    # Paths are joined with commas and default to "-": the shell reads these
+    # lines field by field on whitespace, so a field must never be empty or
+    # contain a space. No backticks in here either - this whole block is one
+    # single-quoted shell word, and shellcheck reads a backtick in it as a
+    # command substitution that will not expand (SC2016).
+    gated = ",".join(a.get("gated_paths") or []) or "-"
+    line = (
+        a["name"] + " " + a["hostname"] + " " + a["exposure"] + " " + gated + chr(10)
+    )
     sys.stdout.buffer.write(line.encode())
 ' "${APP:---all}" "${PLATFORM_DIR}/apps.yml")"
 
@@ -83,7 +91,7 @@ fi
 
 failed=0
 
-while read -r name hostname exposure; do
+while read -r name hostname exposure gated_paths; do
     [ -n "${name}" ] || continue
 
     # No --retry: the answer this script gives is a security claim, and a
@@ -130,6 +138,44 @@ while read -r name hostname exposure; do
             failed=1
             ;;
     esac
+
+    # A public app's ROOT answering ungated is correct and says nothing about
+    # its write surface. This is the only thing that asks about the prefix -
+    # and it is asked from the open internet, because a gate configured in a
+    # dashboard this repository cannot see is exactly what went wrong on art.
+    #
+    # Access answers before the request reaches the box, so the redirect is
+    # present whatever the app itself would have returned for a GET on a write
+    # prefix - 404, 405 and 200 all mean the same thing here: not gated.
+    if [ "${gated_paths}" = "-" ]; then
+        continue
+    fi
+
+    old_ifs="${IFS}"
+    IFS=','
+    # shellcheck disable=SC2086
+    set -- ${gated_paths}
+    IFS="${old_ifs}"
+
+    for path in "$@"; do
+        ph="$(curl -sS -D - -o /dev/null --max-time 20 "https://${hostname}${path}" 2>&1)" || {
+            echo "${name}: could not reach ${hostname}${path}" >&2
+            echo "${ph}" >&2
+            exit 1
+        }
+        pstatus="$(printf '%s' "${ph}" | awk 'NR==1{print $2}')"
+        if printf '%s' "${ph}" | grep -qi '^location:.*cloudflareaccess\.com'; then
+            echo "${name}: ${path} gated by Access, as declared (${pstatus})"
+        else
+            echo "${name}: ${path} IS DECLARED GATED BUT ANSWERS ${pstatus} UNGATED" >&2
+            echo "  ${hostname}${path} reaches the app without authenticating." >&2
+            echo "  A public hostname with an ungated write prefix is a public" >&2
+            echo "  editor. Extend the Access application to cover ${path}, or" >&2
+            echo "  remove it from gated_paths in apps.yml if it is not a write" >&2
+            echo "  surface." >&2
+            failed=1
+        fi
+    done
 done <<< "${targets}"
 
 if [ "${failed}" -ne 0 ]; then

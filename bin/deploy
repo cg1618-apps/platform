@@ -72,9 +72,15 @@ if entry["database"] is None:
     sys.exit(f"{name} declares no database")
 if "migrations" not in entry:
     sys.exit(f"{name} does not declare migrations: in apps.yml")
-print(entry["database"], str(entry["migrations"]).lower(), entry.get("path", "-"))
+gated = ",".join(sorted(entry.get("gated_paths") or [])) or "-"
+print(
+    entry["database"],
+    str(entry["migrations"]).lower(),
+    entry.get("path", "-"),
+    gated,
+)
 ' "${APP}" "${PLATFORM_DIR}/apps.yml")"
-read -r DB HAS_MIGRATIONS REG_PATH <<<"${registry}"
+read -r DB HAS_MIGRATIONS REG_PATH REG_GATED <<<"${registry}"
 
 # Where the checkout is, in precedence order: --app-dir on the command line,
 # the registry's optional `path`, then <apps dir>/<name>. The path used to be
@@ -229,6 +235,40 @@ if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
     echo "apps.yml declares ${APP} has no migrations, yet deploy/migrations" >&2
     echo "exists in ${HOOK_FROM}. The registry and the repository disagree." >&2
     echo "A person settles that, not this script. Refusing." >&2
+    exit 1
+fi
+
+# The same declaration-versus-reality check as migrations, for the write
+# surface. WHICH paths an app gates is a fact about its route table, so the app
+# owns the definition and ships deploy/gated-paths; apps.yml carries the
+# declaration because bin/check-exposure runs from the platform repository with
+# no app checkout and needs the strings to have anything to probe. Two copies
+# were accepted deliberately - see docs/notes/decisions.md - on the condition
+# that drift is loud here rather than silent.
+#
+# Read from the COMMIT in CI for the same reason as the hook: the working tree
+# can hold uncommitted edits and what ships is what the commit says. Unlike the
+# hook this file is DATA - nothing execs it - so its mode is 100644 and no
+# executable-bit check belongs here.
+if [ "${CI_MODE}" -eq 1 ]; then
+    app_gated="$(git show origin/main:deploy/gated-paths 2>/dev/null || true)"
+else
+    app_gated="$(cat "${APP_DIR}/deploy/gated-paths" 2>/dev/null || true)"
+fi
+
+# Strip CR, drop blank lines, sort - the comparison is about the SET of paths,
+# not the order they happen to be written in, in either place.
+APP_GATED="$(printf '%s' "${app_gated}" | tr -d '' | sed '/^[[:space:]]*$/d' | sort | paste -sd, -)"
+[ -n "${APP_GATED}" ] || APP_GATED="-"
+
+if [ "${REG_GATED}" != "${APP_GATED}" ]; then
+    echo "apps.yml and ${HOOK_FROM} disagree about ${APP}'s gated paths." >&2
+    echo "  apps.yml gated_paths:  ${REG_GATED}" >&2
+    echo "  deploy/gated-paths:    ${APP_GATED}" >&2
+    echo "A write surface the registry does not know about is one" >&2
+    echo "bin/check-exposure will never probe, and a path the registry claims" >&2
+    echo "but the app does not serve is a gate nobody is behind. Which is" >&2
+    echo "right is a person's call, not this script's. Refusing." >&2
     exit 1
 fi
 if [ ! -f .env ]; then

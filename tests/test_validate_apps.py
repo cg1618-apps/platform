@@ -142,3 +142,49 @@ def test_the_private_three_are_fine_behind_access(name):
 def test_the_app_name_must_match_its_repository():
     registry = {"apps": [app(repo="git@github.com:cg1618-apps/medja.git")]}
     assert any("medja" in p for p in validate(registry))
+
+
+# `gated_paths` says a PUBLIC app keeps its write surface behind Access on its
+# own prefix. Every refusal below needs an entry that actually carries a path -
+# an app with no gated_paths satisfies all of these vacuously, and the real
+# registry had exactly none of them until food's first write endpoint. Each
+# refusal asserts its mirror on the same fixture, so a green proves the rule
+# did the refusing rather than the fixture being empty.
+
+
+def test_a_public_app_may_declare_a_gated_prefix():
+    registry = {"apps": [app(gated_paths=["/api/edit"])]}
+    assert validate(registry) == []
+
+
+def test_gated_paths_are_refused_on_a_cloudflare_access_app():
+    registry = {"apps": [app(exposure="cloudflare-access", gated_paths=["/api/edit"])]}
+    problems = validate(registry)
+    assert any("gated_paths" in p for p in problems)
+
+
+def test_gated_paths_are_refused_on_a_lan_only_app():
+    registry = {"apps": [app(exposure="lan-only", gated_paths=["/api/edit"])]}
+    assert any("gated_paths" in p for p in validate(registry))
+
+
+def test_the_same_entry_is_clean_once_it_is_public():
+    # The mirror of the two above, on the same fixture: it is the exposure
+    # value that is refused, not the presence of the key.
+    registry = {"apps": [app(exposure="public", gated_paths=["/api/edit"])]}
+    assert validate(registry) == []
+
+
+def test_gating_the_root_is_refused():
+    # Gating every path is what `cloudflare-access` means. Declaring it as a
+    # prefix on a public app would have bin/check-exposure confirm the gate by
+    # finding the redirect the whole hostname already returns.
+    registry = {"apps": [app(gated_paths=["/"])]}
+    assert any("'/'" in p for p in validate(registry))
+
+
+def test_a_deep_path_is_not_refused():
+    # Mirror of the root case: the rule is about "/" exactly, not about paths
+    # being short or shallow.
+    registry = {"apps": [app(gated_paths=["/api"])]}
+    assert validate(registry) == []

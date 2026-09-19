@@ -74,3 +74,73 @@ jobs:
           echo "linting: ${scripts[*]}"
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck "${scripts[@]}"
+
+      # Everything above reads the stack's files. Nothing above STARTS it,
+      # and that gap took the tunnel down: a change that moved the apex and
+      # cloudflared mounts passed every check here, merged, and then failed
+      # on the box with "read-only file system" because runc could not create
+      # a mountpoint inside a read-only mount. Every hostname went with it.
+      #
+      # `docker compose up -d` is the whole guard. It returned non-zero on
+      # the box for exactly that reason, so running it here would have
+      # failed this job instead of production.
+      #
+      # Dummy credentials: the tunnel cannot connect from a hosted runner and
+      # is not meant to. What is being proved is that every container STARTS -
+      # mounts resolved, paths present, config parsed - which is the class of
+      # failure that reaches the box.
+      - name: Smoke-test the shared stack
+        run: |
+          set -euo pipefail
+
+          printf '{"AccountTag":"ci","TunnelSecret":"ci","TunnelID":"ci"}\n' \
+            > "${GITHUB_WORKSPACE}/.ci-credentials.json"
+
+          cat > .env <<EOF
+          # The name the box uses, so container names and the network match
+          # what production has rather than the CI directory name.
+          COMPOSE_PROJECT_NAME=cg1618
+          POSTGRES_USER=ci
+          POSTGRES_PASSWORD=ci
+          POSTGRES_DB=ci
+          TUNNEL_ID=00000000-0000-0000-0000-000000000000
+          CLOUDFLARED_CREDENTIALS=${GITHUB_WORKSPACE}/.ci-credentials.json
+          EOF
+
+          # The step that would have caught the outage.
+          docker compose -f docker-compose.prod.yml up -d
+
+          # Started, not healthy. cloudflared cannot authenticate here and
+          # will restart-loop; that is expected and is not what is under
+          # test. A container that never started has the zero time here, and
+          # that is what a bad mount produces.
+          for c in cg1618-db-1 cg1618-cloudflared-1 cg1618-apex-1; do
+            started="$(docker inspect -f '{{.State.StartedAt}}' "$c")"
+            echo "${c} started at ${started}"
+            case "${started}" in
+              0001-01-01*) echo "${c} never started"; exit 1 ;;
+            esac
+          done
+
+          # The apex mounts are directories, and this is what proves they
+          # resolve to the committed files rather than to an empty directory
+          # docker helpfully created. A single-file mount that has gone stale
+          # fails here too.
+          docker compose -f docker-compose.prod.yml exec -T apex \
+            cat /usr/share/nginx/html/index.html > /tmp/served.html
+          diff apex/html/index.html /tmp/served.html
+
+          # nginx parsed the mounted config and answers its own health probe.
+          for _ in $(seq 1 20); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-apex-1)"
+            [ "${status}" = "healthy" ] && break
+            echo "apex: ${status}"
+            sleep 3
+          done
+          [ "${status}" = "healthy" ]
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          docker compose -f docker-compose.prod.yml down -v || true
+          rm -f .env "${GITHUB_WORKSPACE}/.ci-credentials.json"

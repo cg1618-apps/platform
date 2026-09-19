@@ -116,7 +116,7 @@ than something incidental.
 | File | Generator | Checked by |
 | --- | --- | --- |
 | `cloudflared/config.yml` | `bin/generate_ingress.py` | CI, `--check` |
-| `apex/index.html` | `bin/generate_apex.py` | CI, `--check` |
+| `apex/html/index.html` | `bin/generate_apex.py` | CI, `--check` |
 
 Both are committed rather than built at deploy time, so what will be served
 appears in the pull request diff where a person reads it. Neither is ever

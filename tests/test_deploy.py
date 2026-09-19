@@ -707,3 +707,31 @@ def test_the_incoming_hook_is_written_beside_the_real_one():
     # And it does not survive the run: an executable left in the checkout is
     # picked up by the next thing that globs deploy/.
     assert "rm -f" in body and "EXIT" in body
+
+
+# --- the box's checkouts are the ones that act ------------------------------
+
+
+def test_no_single_file_bind_mounts_in_the_production_stack():
+    """A file bind mount pins the inode; `git pull` replaces the file.
+
+    The container then serves the old content while the file on disk is
+    correct, and nothing on either side says so. It cost an afternoon the day
+    travel went live: the apex page on disk linked to travel and the page
+    being served still said "planned". A directory mount re-resolves the name
+    on every open, so the same pull is picked up.
+    """
+    compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+
+    mounts = []
+    for line in compose.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- ./"):
+            continue
+        source = stripped[2:].split(":", 1)[0]
+        mounts.append(source)
+
+    assert mounts, "found no bind mounts at all - this test would pass vacuously"
+    for source in mounts:
+        path = ROOT / source[2:]
+        assert path.is_dir(), f"{source} is a file bind mount; mount its directory"

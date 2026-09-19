@@ -34,9 +34,20 @@ them and does not contain them.
 | `travel` | Packing and buying lists, rules, transport information, and the current planned trip. The smallest of the four. |
 | `art` | Practice records and progress, a stopwatch and timer, what to draw, references, schedule, tool notes, libraries of expressions and accessories, a roadmap, and artists worth following. |
 
-Only `media` exists today. The others are built in the order **`food`,
-`travel`, `art`**, and all three are `public`, so none of them needs a
-Cloudflare Access policy before it can serve.
+All four exist and all four are `live` in `apps.yml`. **Their exposure is not
+uniform, and `apps.yml` is the only statement of it that counts** — `media` and
+`food` are `public`, `travel` and `art` are `cloudflare-access`, so those two
+need an Access application covering their hostname before they serve. A
+`cloudflare-access` hostname whose DNS record has no Access application behind
+it looks identical to a working one from everywhere except the open internet;
+that is what `bin/check-exposure` asks, and what it caught on `art`.
+
+`public` is not the absence of a gate either. It means nobody authenticates
+**reads** — the app still owes its own gate on **writes**, and
+`docs/registry.md` says to keep that write surface under its own path prefix.
+Nothing in this repository verifies that: `exposure` is one enum for a whole
+app, and `bin/check-exposure` probes `https://<hostname>` and nothing below it.
+So a public app with an unprotected write prefix passes every check here.
 
 **Python and PostgreSQL are the only guaranteed common ground.** Framework,
 frontend, migration tool and whether there is a build step at all belong to each

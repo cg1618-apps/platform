@@ -1,0 +1,274 @@
+name: Deploy app
+
+# The one deploy pipeline every application in cg1618-apps calls. It is
+# `workflow_call` ONLY, deliberately and permanently:
+#
+#   * every repository in this organisation is public, and the runner it ends
+#     up on is a machine in a house. A `pull_request` trigger here would let a
+#     fork's pull request execute on it, which is the standard catastrophe.
+#     tests/test_deploy_workflow.py fails the build if any other trigger is
+#     ever added.
+#   * the decision of WHAT is deployed belongs to the app: its own workflow
+#     triggers on a push to its own `main` and calls this one. `main` is
+#     production, and the box's checkout of that app tracks `main`, so the
+#     app's trigger and that checkout are the same decision stated twice.
+#
+# Box-initiated by necessity. No service on the production machine publishes a
+# port, its only ingress is an outbound Cloudflare Tunnel, and it has no stable
+# address. GitHub cannot push, ssh or webhook into it. A self-hosted runner
+# long-polls GitHub outbound instead.
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: The app's name, exactly as apps.yml spells it.
+        required: true
+        type: string
+      runs_on:
+        description: >-
+          JSON array of runner labels. The default is the box; an app has no
+          reason to change it except to aim at another self-hosted runner. It
+          must never name a runner a pull request can reach.
+        required: false
+        type: string
+        default: '["self-hosted", "homelab"]'
+      app_dir:
+        description: >-
+          The app's checkout on the box, when it is not ${HOME}/<app>. The
+          media tracker predates the layout and lives at ~/anime_site.
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  # Per app, not global: two apps deploying at once touch different databases,
+  # different images and different compose projects, so serialising them buys
+  # nothing. One app deploying over itself is the thing that must not happen.
+  group: deploy-${{ inputs.app }}
+  # Never cancel a deploy in flight. A cancelled run can leave the box between
+  # `git pull` and `up -d --build`, which is a state no exit code describes.
+  cancel-in-progress: false
+
+jobs:
+  # Runs on GitHub rather than the box: it needs only the registry and the
+  # push diff, and it decides which of the two deploy jobs runs - including
+  # whether the owner must approve before anything touches production.
+  #
+  # HOW IT DECIDES differs from the single-app workflow this replaces, which
+  # grepped the push diff for `^alembic/versions/`. The platform does not know
+  # any app's migration tool or layout, so it cannot grep for one. Two sources
+  # answer the question instead, in order:
+  #
+  #   1. `apps.yml`. `migrations: false` means the app's schema never changes,
+  #      and bin/deploy refuses outright if a hook turns up anyway - so no
+  #      push of that app can add a migration and the ungated lane is always
+  #      right.
+  #   2. The app's own `deploy/migrations added <before> <after>` hook, which
+  #      is the contract's answer to "what does this deploy add". Asking the
+  #      app is the only app-agnostic way to keep the ungated lane alive: the
+  #      alternative - gating every deploy of every app that declares
+  #      migrations - would make that lane dead code, because all four apps
+  #      declare `migrations: true` and most deploys are frontend and fixes.
+  #
+  # Everything else takes the gated lane: a zero `before`, a hook that is
+  # missing or not executable, a hook that fails, a registry the runner could
+  # not read, an app that is not in the registry. A needless approval prompt
+  # costs one tap; a migration deployed unattended is the one failure this
+  # pipeline must not have.
+  #
+  # None of this is authoritative and it does not need to be. bin/deploy asks
+  # the same hook again on the box, against the box's own HEAD, and refuses
+  # without MIGRATION_APPROVED - which catches the case this job structurally
+  # cannot see: a runner offline across two merges, so that one push range
+  # misses the earlier migration.
+  classify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      migration: ${{ steps.check.outputs.migration }}
+    steps:
+      # The app, at the pushed sha, with full history: the hook is asked about
+      # the range `before...after`, and a shallow clone does not contain
+      # `before`.
+      - name: Check out the app
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: app
+
+      # The registry, from the platform repository - public, so the caller's
+      # own token reads it. `main`, because the registry the box will act on
+      # is the one on main, not whatever ref this workflow was called at.
+      - name: Check out the registry
+        uses: actions/checkout@v4
+        with:
+          repository: cg1618-apps/platform
+          ref: main
+          path: platform
+
+      - id: check
+        env:
+          APP: ${{ inputs.app }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          gated() {
+            echo "$1"
+            echo "migration=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          # The registry is the source of truth for whether this app has a
+          # schema at all. A read that fails is not an answer, so it gates.
+          declared="$(python3 -c '
+          import sys, yaml
+          name = sys.argv[1]
+          apps = yaml.safe_load(open(sys.argv[2]))["apps"]
+          match = [a for a in apps if a["name"] == name]
+          if not match:
+              sys.exit(f"{name} is not in apps.yml")
+          entry = match[0]
+          if "migrations" not in entry:
+              sys.exit(f"{name} does not declare migrations: in apps.yml")
+          print(str(entry["migrations"]).lower())
+          ' "${APP}" platform/apps.yml)" ||
+            gated "Could not read the registry; treating as a migration deploy."
+
+          if [ "${declared}" != "true" ]; then
+            echo "${APP} declares no migrations in apps.yml."
+            echo "migration=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A zero `before` means no comparable range - a first push, a
+          # force-push, or a branch created at this sha.
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            gated "No comparable range; treating as a migration deploy."
+          fi
+
+          # -f as well as -x, because -x is true of a DIRECTORY: that would
+          # pass the gate and then exit 126 on the call below.
+          if [ ! -f app/deploy/migrations ] || [ ! -x app/deploy/migrations ]; then
+            gated "app/deploy/migrations is not an executable file; treating as a migration deploy."
+          fi
+
+          # Asked, never inferred - and `if !` rather than a bare call,
+          # because under `set -e` the hook's exit status would otherwise
+          # become this step's. "I could not tell" and "there were none" are
+          # opposite answers, and the second one deploys a migration
+          # unattended.
+          if ! incoming="$(cd app && ./deploy/migrations added "${BEFORE}" "${AFTER}")"; then
+            gated "deploy/migrations added failed; treating as a migration deploy."
+          fi
+
+          if [ -n "${incoming}" ]; then
+            echo "This deploy adds migrations:"
+            echo "${incoming}"
+            echo "migration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "migration=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The common case: frontend work, fixes, docs. Nothing here can lose data,
+  # because the database is never modified.
+  deploy:
+    needs: classify
+    if: needs.classify.outputs.migration == 'false'
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    steps:
+      # No actions/checkout. The runner's workspace is ~/actions-runner/_work/
+      # and the stack only works from the platform checkout at ~/cg1618 and
+      # the app's own checkout beside it, where .env lives, where the bind
+      # mounts are, and where COMPOSE_PROJECT_NAME decides WHICH VOLUME is the
+      # real database. A deploy from the runner's own checkout would come up
+      # on a brand-new empty volume while the real data sat in the old one -
+      # which looks exactly like data loss.
+      #
+      # The exit code is captured rather than just allowed to fail the step,
+      # because WHICH failure it was decides whether rolling back is correct.
+      - name: Deploy
+        id: deploy
+        env:
+          APP: ${{ inputs.app }}
+          APP_DIR: ${{ inputs.app_dir }}
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          args=("${APP}" --ci)
+          if [ -n "${APP_DIR}" ]; then
+            args+=(--app-dir "${APP_DIR}")
+          fi
+          rc=0
+          ./bin/deploy "${args[@]}" || rc=$?
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+          exit "${rc}"
+
+      # Exit 2 only: the deploy RAN and the result is unhealthy, so the
+      # database may have been migrated and the previous image is the way
+      # back. Exit 1 is a refusal to start - wrong branch, no .env, an
+      # unapproved migration, a registry and a repository that disagree -
+      # which leaves production untouched and still serving, and where rolling
+      # back would take a working site down to "recover" from nothing.
+      # `if: failure()` alone cannot tell those apart.
+      - name: Roll back
+        if: failure() && steps.deploy.outputs.rc == '2'
+        env:
+          APP: ${{ inputs.app }}
+          APP_DIR: ${{ inputs.app_dir }}
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          args=("${APP}")
+          if [ -n "${APP_DIR}" ]; then
+            args+=(--app-dir "${APP_DIR}")
+          fi
+          ./bin/rollback "${args[@]}"
+
+  # Identical steps, one difference: `environment: production` carries a
+  # required reviewer, so this job waits for the owner before it runs.
+  #
+  # The gate exists because a migration is the only class of change that can
+  # destroy data, and because reversing a migration is not a restore - undoing
+  # a dropped column recreates it empty. MIGRATION_APPROVED is what
+  # bin/deploy's own re-check looks for, so the approval travels to the box
+  # rather than living only in GitHub's audit log.
+  deploy-migration:
+    needs: classify
+    if: needs.classify.outputs.migration == 'true'
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    environment: production
+    steps:
+      - name: Deploy
+        id: deploy
+        env:
+          APP: ${{ inputs.app }}
+          APP_DIR: ${{ inputs.app_dir }}
+          MIGRATION_APPROVED: "1"
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          args=("${APP}" --ci)
+          if [ -n "${APP_DIR}" ]; then
+            args+=(--app-dir "${APP_DIR}")
+          fi
+          rc=0
+          ./bin/deploy "${args[@]}" || rc=$?
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+          exit "${rc}"
+
+      # Exit 2 only, for the same reason as the ungated job - and it matters
+      # more here, because this is the lane where a migration has run and
+      # bin/rollback may have schema to reverse.
+      - name: Roll back
+        if: failure() && steps.deploy.outputs.rc == '2'
+        env:
+          APP: ${{ inputs.app }}
+          APP_DIR: ${{ inputs.app_dir }}
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          args=("${APP}")
+          if [ -n "${APP_DIR}" ]; then
+            args+=(--app-dir "${APP_DIR}")
+          fi
+          ./bin/rollback "${args[@]}"

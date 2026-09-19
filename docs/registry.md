@@ -255,6 +255,41 @@ stopping the container stops all of them.
    `bin/deploy` skips both the recorded revision beside the dump and the
    approval gate, and `bin/rollback` goes straight to the image swap.
 
+   - **A deploy workflow that calls the platform's, and does nothing itself.**
+     `.github/workflows/deploy.yml` in the app repository is one decision and
+     nothing else — copy it exactly:
+
+     ```yaml
+     name: Deploy
+
+     # main only. main is production, and the box's checkout of this app
+     # tracks main, so this trigger and that checkout are the same decision
+     # stated twice.
+     on:
+       push:
+         branches:
+           - main
+
+     jobs:
+       deploy:
+         uses: cg1618-apps/platform/.github/workflows/deploy-app.yml@main
+         with:
+           app: travel
+     ```
+
+     `app:` is the name spelled exactly as this file spells it; everything
+     else — the classify job, the approval gate, the per-app concurrency
+     group, the exit-2-only rollback — lives in the reusable workflow and is
+     not an app's to restate. Two optional inputs exist, for one situation
+     each: `runs_on`, a JSON array of runner labels, and `app_dir`, the
+     app's checkout path on the box when it is not `${HOME}/<app>` (the media
+     tracker's is `~/anime_site`).
+
+     **The app's workflow must not name the self-hosted runner itself**, and
+     must not carry a `pull_request` trigger anywhere near this job. The
+     reusable workflow is `workflow_call` only for that reason; a caller that
+     adds a trigger of its own hands the same catastrophe back.
+
 4. When it can actually serve, one line: `status: live`. That is the change
    that routes its hostname and links it from the apex page.
 

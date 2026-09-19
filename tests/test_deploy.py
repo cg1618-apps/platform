@@ -9,8 +9,10 @@ this logic lived in one application's deploy/ directory. Generalising it must
 not quietly drop any of them.
 """
 
+import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -386,14 +388,25 @@ def test_the_hook_is_never_called_bare():
 
     Every call therefore tests its own status: `if !`, or `|| freeze`.
     """
+    # An INVOCATION is the path followed by one of the three subcommands.
+    # The path also appears in lines that merely handle the file - the deploy
+    # writes the incoming revision's hook to it and removes it again - and
+    # those are not calls and have no exit status to protect.
+    invocation = re.compile(r'"\$\{MIGRATIONS\}"\s+(current|added|downgrade)\b')
+
+    seen = 0
     for script in (DEPLOY, ROLLBACK):
         for line in command_lines(script, '"${MIGRATIONS}"'):
-            if "MIGRATIONS}" not in line or line.strip().startswith("if [ "):
+            if not invocation.search(line):
                 continue
+            seen += 1
             guarded = line.strip().startswith("if ! ") or "|| freeze" in line
             assert guarded, f"{script.name}: {line.strip()}"
 
-
+    # Without this the test passes when the pattern above matches nothing -
+    # which is exactly what a renamed variable or a reworked hook would do,
+    # and the gate would go green having checked no calls at all.
+    assert seen >= 3, f"expected to find the hook's calls, found {seen}"
 def test_a_failed_added_call_refuses_rather_than_reporting_nothing():
     # "I could not tell" and "there were none" are opposite answers, and the
     # second one deploys an unapproved migration (deploy) or swaps the image
@@ -569,3 +582,128 @@ def test_the_freeze_message_the_workflow_greps_for_is_exactly_that_string():
         encoding="utf-8"
     )
     assert "pre-deploy dump: " in workflow
+
+
+# --- the hook comes from the revision being deployed ------------------------
+
+
+def build_app_checkout(tmp_path: Path, with_hook: bool, mode: int = 0o755) -> Path:
+    """An app checkout on main, with an origin whose main is one commit ahead.
+
+    The incoming commit is what `--ci` deploys, and whether IT carries
+    deploy/migrations is the question these tests ask. The checkout itself
+    never has the hook, which is the state every app is in before its first
+    deploy.
+    """
+    exe = usable_bash()
+    assert exe is not None
+
+    origin = tmp_path / "origin.git"
+    work = tmp_path / "work"
+    checkout = tmp_path / "checkout"
+
+    script = f"""
+    set -eu
+    export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
+    export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init --quiet --bare -b main '{origin.as_posix()}'
+    git clone --quiet '{origin.as_posix()}' '{work.as_posix()}'
+    cd '{work.as_posix()}'
+    git symbolic-ref HEAD refs/heads/main
+    echo app > README
+    git add README
+    git commit --quiet -m first
+    git push --quiet origin main
+    git clone --quiet '{origin.as_posix()}' '{checkout.as_posix()}'
+    """
+    if with_hook:
+        script += f"""
+    mkdir -p deploy
+    printf '#!/usr/bin/env bash\necho base\n' > deploy/migrations
+    chmod {mode:o} deploy/migrations
+    git add deploy/migrations
+    git update-index --chmod={'+x' if mode & 0o111 else '-x'} deploy/migrations
+    git commit --quiet -m hook
+    git push --quiet origin main
+    """
+    subprocess.run([exe, "-c", script], check=True, capture_output=True)
+    return checkout
+
+
+def run_deploy(checkout: Path) -> subprocess.CompletedProcess:
+    exe = usable_bash()
+    return subprocess.run(
+        [exe, str(DEPLOY), "travel", "--ci", "--app-dir", str(checkout)],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_a_first_deploy_reads_the_hook_from_the_incoming_commit():
+    """The checkout predates the hook on every app's first deploy.
+
+    The checkout is cloned to provision the app, before a release exists to
+    clone from; the hook arrives with the release being deployed. Reading it
+    from the checkout refuses that deploy - which is how travel's first
+    deploy failed, after its production gate had been approved.
+    """
+    if usable_bash() is None:
+        pytest.skip("no working bash on this machine")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        checkout = build_app_checkout(tmp, with_hook=True)
+        assert not (checkout / "deploy" / "migrations").exists(), (
+            "the checkout must NOT have the hook, or this tests nothing"
+        )
+        result = run_deploy(checkout)
+        # It gets past the hook guards and on to the database, which is not
+        # running here. What matters is that it did not refuse for a missing
+        # hook: that refusal is the defect.
+        assert "deploy/migrations is not" not in result.stderr, result.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_it_refuses_when_the_incoming_commit_has_no_hook():
+    # The mirror, and the reason the test above proves anything: with the
+    # registry declaring migrations and the incoming commit carrying no hook,
+    # the deploy must still refuse. Without this, a change that skipped the
+    # guard entirely would pass the test above.
+    if usable_bash() is None:
+        pytest.skip("no working bash on this machine")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        checkout = build_app_checkout(tmp, with_hook=False)
+        result = run_deploy(checkout)
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "deploy/migrations is not" in result.stderr, result.stderr
+        assert "origin/main" in result.stderr, result.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_it_refuses_when_the_incoming_hook_lost_its_mode_bit():
+    # This repository has lost that bit four times to a machine with
+    # core.fileMode=false, and a hook that cannot execute is indistinguishable
+    # from an app with no migrations unless the mode is read from the tree.
+    if usable_bash() is None:
+        pytest.skip("no working bash on this machine")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        checkout = build_app_checkout(tmp, with_hook=True, mode=0o644)
+        result = run_deploy(checkout)
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "100644" in result.stderr, result.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_incoming_hook_is_written_beside_the_real_one():
+    # The hook finds the app root with `cd "$(dirname "$0")/.."`, so a copy
+    # written anywhere but deploy/ would cd to the wrong directory and read
+    # the wrong .env - or none at all.
+    body = code(DEPLOY)
+    assert '"${APP_DIR}/deploy/.migrations-incoming"' in body
+    # And it does not survive the run: an executable left in the checkout is
+    # picked up by the next thing that globs deploy/.
+    assert "rm -f" in body and "EXIT" in body

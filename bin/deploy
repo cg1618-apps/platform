@@ -139,11 +139,66 @@ KEEP=5
 # declared in apps.yml rather than inferred from the hook's presence, and an
 # app that declares none skips both the sidecar and the approval gate - which
 # is exactly right for an app whose schema never changes.
-MIGRATIONS="${APP_DIR}/deploy/migrations"
+# The hook the pre-pull questions are asked of comes from the revision being
+# DEPLOYED, not from the checkout that is about to be replaced by it.
+#
+# Both questions asked before the pull are about the incoming code. `added
+# HEAD origin/main` asks which revision files arrive; `current` asks the
+# database, which no version of the hook changes. The outgoing hook has no
+# better claim on either, and two failures say it has a worse one:
+#
+#   - Every app's FIRST deploy has a checkout that predates its hook. The
+#     checkout is cloned to provision the app, before any release exists to
+#     clone; the hook arrives with the release this run is deploying. Read
+#     from the checkout, that deploy is refused - for every app, once - with
+#     a message about a missing file that is sitting in the commit being
+#     deployed. travel hit exactly that, after its production gate had
+#     already been approved.
+#   - A FIX to the hook cannot deploy itself, for the same reason: the run
+#     that would ship it calls the broken copy first. Recovering means an ssh
+#     to the box, which is not available from every machine this is developed
+#     on, so a routine hook change becomes a trip home.
+#
+# A manual run has no such gap - it deploys the checkout in front of you, so
+# the checkout's hook is the right one and nothing is fetched behind your
+# back.
+if [ "${CI_MODE}" -eq 1 ]; then
+    git fetch origin main --quiet
+fi
 
-# The registry says whether this app HAS migrations; the filesystem says
-# whether they can be run. Both must agree, and a disagreement is refused
-# rather than guessed at.
+MIGRATIONS="${APP_DIR}/deploy/migrations"
+HOOK_FROM="the checkout"
+
+if [ "${CI_MODE}" -eq 1 ]; then
+    HOOK_FROM="origin/main"
+    # Beside the real hook rather than in a temp directory: the hook locates
+    # the app root from its own path, with `cd "$(dirname "$0")/.."`. A copy
+    # anywhere else would cd somewhere else and read the wrong .env - or none.
+    MIGRATIONS="${APP_DIR}/deploy/.migrations-incoming"
+    rm -f "${MIGRATIONS}"
+    # shellcheck disable=SC2064  # expand MIGRATIONS now; it is about to change meaning
+    trap "rm -f '${MIGRATIONS}'" EXIT
+
+    entry="$(git ls-tree origin/main -- deploy/migrations)"
+    if [ -n "${entry}" ]; then
+        # The mode travels in the tree, and this repository has lost that bit
+        # four times to a machine with core.fileMode=false. Checking it here
+        # checks the commit being deployed, which is the one that matters;
+        # the local file's mode says nothing about what CI will run.
+        mode="${entry%% *}"
+        if [ "${mode}" != "100755" ]; then
+            echo "deploy/migrations is mode ${mode} in origin/main, not 100755." >&2
+            echo "A hook that is not executable cannot run. Refusing." >&2
+            exit 1
+        fi
+        git show origin/main:deploy/migrations > "${MIGRATIONS}"
+        chmod +x "${MIGRATIONS}"
+    fi
+fi
+
+# The registry says whether this app HAS migrations; the revision being
+# deployed says whether they can be run. Both must agree, and a disagreement
+# is refused rather than guessed at.
 #
 # Absence used to mean "no migrations", which made a hook that had lost its
 # mode bit indistinguishable from an app with no schema - and this repository
@@ -153,22 +208,21 @@ MIGRATIONS="${APP_DIR}/deploy/migrations"
 # -f as well as -x, because -x is true of a DIRECTORY: that passes the gate and
 # then exits 126 on the first call.
 if [ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] || [ ! -x "${MIGRATIONS}" ]; }; then
-    echo "${MIGRATIONS} exists but is not an executable file. Refusing." >&2
+    echo "deploy/migrations in ${HOOK_FROM} is not an executable file. Refusing." >&2
     exit 1
 fi
 if [ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]; then
-    echo "apps.yml declares ${APP} has migrations, but ${MIGRATIONS} is not" >&2
-    echo "there to run. Deploying now would skip the approval gate and record" >&2
-    echo "no downgrade target. Refusing." >&2
+    echo "apps.yml declares ${APP} has migrations, but deploy/migrations is not" >&2
+    echo "in ${HOOK_FROM} to run. Deploying now would skip the approval gate" >&2
+    echo "and record no downgrade target. Refusing." >&2
     exit 1
 fi
 if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
-    echo "apps.yml declares ${APP} has no migrations, yet ${MIGRATIONS} exists." >&2
-    echo "The registry and the repository disagree. A person settles that, not" >&2
-    echo "this script. Refusing." >&2
+    echo "apps.yml declares ${APP} has no migrations, yet deploy/migrations" >&2
+    echo "exists in ${HOOK_FROM}. The registry and the repository disagree." >&2
+    echo "A person settles that, not this script. Refusing." >&2
     exit 1
 fi
-
 if [ ! -f .env ]; then
     echo "No .env in $(pwd). The app's deploy documentation has the template." >&2
     exit 1
@@ -180,7 +234,7 @@ if [ "${CI_MODE}" -eq 1 ]; then
     # of the decision about what production runs. A --ci run against a feature
     # branch would dump production, pull that branch and build it: a deploy of
     # unreviewed code that nothing in GitHub would show as a deploy.
-    git fetch origin main --quiet
+    # origin/main is already fetched above, where the incoming hook is read.
 
     branch="$(git rev-parse --abbrev-ref HEAD)"
     if [ "${branch}" != "main" ]; then

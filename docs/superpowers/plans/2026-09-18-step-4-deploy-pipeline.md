@@ -366,6 +366,31 @@ def test_the_reusable_workflow_is_not_callable_from_a_pull_request():
 
 ### Task 4: The media tracker adopts it
 
+> **BLOCKER — `media` must ship `deploy/migrations` BEFORE `bin/deploy media`
+> runs on the box.**
+>
+> `media` has no `deploy/migrations` today, and `media` is the only `live` app.
+> Pointing this pipeline at it as it stands would deploy with **no approval
+> gate** and **no rollback target**: `bin/deploy` would record no schema
+> revision beside the dump, and `bin/rollback` would have nothing to downgrade
+> to. That is the exact failure the whole tiering exists to prevent, on the one
+> application that is actually serving.
+>
+> Since the registry now carries `migrations: true|false` and `media` declares
+> `true`, `bin/deploy media` **refuses to run** until the hook exists — loudly,
+> at the start, having touched nothing. That is the intended behaviour, not a
+> problem to work around: do not flip `media` to `migrations: false` to get
+> past it.
+>
+> The hook is written in the `media` repository, as its own task, against the
+> contract in `docs/registry.md`. **It must carry the `irreversible = True`
+> refusal**, which currently exists nowhere: `media/deploy/rollback.sh` greps
+> the revision files between the current head and the target for the literal
+> line `^irreversible = True$` and refuses, non-zero, having reversed nothing.
+> Deleting `rollback.sh` in this task without re-homing that check into the
+> hook silently removes the only thing standing between an automated rollback
+> and a migration that invents data instead of restoring it.
+
 **Files (in `media/`):**
 - Modify: `.github/workflows/deploy.yml` — reduced to a call
 - Delete: `deploy/deploy.sh`, `deploy/rollback.sh`, `deploy/health.sh`
@@ -537,6 +562,34 @@ app-agnostic is provisioning an app that does not exist.
   from the environment, and a `main` branch that is production.
 
 ---
+
+### Task 5b: Uploaded files, which two apps now need
+
+**`food` and `art` both need image storage**, discovered while decomposing
+them: photographs of dishes and ingredients, reference images and pictures of
+finished work. Neither should invent its own answer, and the media tracker
+already has the shape:
+
+- **A bind-mounted directory outside the container image**, so `rsync`, `tar`
+  and the backup see ordinary files. `media` mounts `./static/covers` and
+  `./static/library` from its checkout.
+- **Backup coverage that distinguishes re-fetchable from irreplaceable.**
+  `media` mirrors `static/library` nightly because nothing can supply those
+  images again, and syncs `static/covers` weekly because the metadata APIs can.
+  A photograph of a dish or a drawing is the first kind: nightly, always.
+
+What this step has to decide, and what `bin/backup` has to implement:
+
+- [ ] **Where an app's uploads live**, as a convention rather than per app —
+  `<app checkout>/static/uploads/` is the obvious candidate, and the app
+  declares nothing because the path is derived from its name.
+- [ ] **Whether the registry needs to know.** An app with no uploads should not
+  have an empty directory mirrored nightly. A boolean in `apps.yml` is the
+  cheap answer; deriving it from the directory's existence is cheaper still and
+  fails silently when the directory is missing, which is the wrong way round.
+- [ ] **That the restore drill covers files, not only the database.** The
+  current `verify.sh` restores a dump and counts rows. An upload store that has
+  never been restored is a backup nobody has tested.
 
 ## What this step deliberately does not do
 

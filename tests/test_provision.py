@@ -98,3 +98,56 @@ def test_it_rewrites_exactly_three_keys_and_not_the_connection_string():
     assert '"POSTGRES_PASSWORD"' in wanted
     assert '"POSTGRES_DB"' in wanted
     assert "DATABASE_URL" not in wanted
+
+
+def test_it_arms_the_deploy_approval_gate():
+    # The `production` environment is the one item of the app contract that
+    # exists only as a GitHub setting. Referencing an environment that does
+    # not exist creates it with no protection rules and runs the job, so an
+    # app nobody armed would deploy a migration unattended - with the gate
+    # present in the workflow and meaning nothing.
+    body = code()
+    assert "environments/production" in body
+    assert "reviewers[][type]=User" in body
+
+
+def test_a_missing_gh_prints_the_command_rather_than_failing():
+    # provision's job is the database. Aborting after the role, the database
+    # and the .env are written would report failure over work that succeeded,
+    # on a box that may have no gh and no login.
+    body = code()
+    assert "command -v gh" in body
+    assert "arm_env_cmd" in body
+    for line in body.splitlines():
+        if "environments/production" in line and "gh api -X PUT" in line:
+            assert not line.strip().startswith("exit"), line
+
+
+def test_the_env_file_default_honours_the_registry_path():
+    # This script read the registry for the database name and GUESSED the
+    # directory, so `provision media` looked in ~/media/.env for an app whose
+    # checkout is ~/anime_site. The other three scripts resolve it the same
+    # way; this was the one that did not.
+    body = code()
+    assert '"path"' in body
+    assert "REG_PATH" in body
+    assert 'ENV_FILE="${APP_DIR}/.env"' in body
+
+
+def test_the_environment_flags_are_typed():
+    # -f sends every value as a JSON string. prevent_self_review is a typed
+    # boolean, so -f earns a 422 - and provision would then print the same
+    # broken command for the owner to paste.
+    for line in code().splitlines():
+        if "prevent_self_review" in line:
+            assert "-F 'prevent_self_review" in line, line
+            assert "-f 'prevent_self_review" not in line, line
+
+
+def test_the_registry_path_is_expanded_the_same_way_as_the_other_scripts():
+    # Same mechanism, same reasoning: strip a literal "~/" and prepend HOME
+    # when that removed something. Four copies of one idea, and a fifth
+    # spelling would be a fifth thing to verify.
+    body = code()
+    assert r'stripped="${REG_PATH#\~/}"' in body
+    assert 'APP_DIR="${HOME}/${stripped}"' in body

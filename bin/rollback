@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# Recover an application from a failed deploy, as far as is safe without a
+# human.
+#
+#   ./bin/rollback <app> [--app-dir PATH]
+#
+# THIS SCRIPT NEVER RESTORES DATA. It reverses schema, through the app's own
+# migration hook, and swaps the image back. Reversing a migration is not a
+# restore - undoing a dropped column recreates it empty - so a migration that
+# dropped data leaves that data only in the pre-deploy dump. Restoring
+# automatically would discard every write made since that dump in order to
+# recover from a failure that usually did not touch data at all. That trade is
+# a human's to make, so tier 3 stages it and stops.
+#
+# Exit codes:
+#   0  the app is healthy again
+#   3  frozen; a human is needed, and the dump to restore from is named
+#
+# Run it by hand exactly as the workflow does. That is the point: a procedure
+# verified by a different piece of code is verified by nothing, and the
+# rollback documented on this box was wrong in a way only executing it
+# revealed.
+
+set -euo pipefail
+
+PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Exported for the app's deploy/migrations hook, which reaches back into the
+# platform's compose project. This process is the only one that knows the
+# path authoritatively; a hook left to guess ${HOME}/cg1618 is right until
+# the checkout moves.
+export PLATFORM_DIR
+
+APP=""
+APP_DIR=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
+        -*)        echo "unknown option: $1" >&2; exit 1 ;;
+        # One app per run, named once: a second positional used to replace
+        # the first silently.
+        *)         if [ -n "${APP}" ]; then
+                       echo "unexpected argument '$1'; ${APP} was already named." >&2
+                       exit 1
+                   fi
+                   APP="$1" ;;
+    esac
+    shift
+done
+
+[ -n "${APP}" ] || { echo "usage: rollback <app> [--app-dir PATH]" >&2; exit 1; }
+
+# Validated against the registry for the same reason bin/deploy is: rolling
+# back a name that is not an app would hunt for dumps that cannot exist and
+# freeze, which reads as a missing backup rather than as a typo.
+#
+# It also reports whether the app declares migrations, which is what decides
+# tier 2 - a declaration in the registry rather than the presence of a file.
+registry="$(python3 -c '
+import sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open(sys.argv[2]))["apps"]
+match = [a for a in apps if a["name"] == name]
+if not match:
+    sys.exit(f"{name} is not in apps.yml")
+if "migrations" not in match[0]:
+    sys.exit(f"{name} does not declare migrations: in apps.yml")
+print(str(match[0]["migrations"]).lower(), match[0].get("path", "-"))
+' "${APP}" "${PLATFORM_DIR}/apps.yml")"
+read -r HAS_MIGRATIONS REG_PATH <<<"${registry}"
+
+# Where the checkout is, in precedence order: --app-dir on the command line,
+# the registry's optional `path`, then <apps dir>/<name>. The path used to be
+# a caller-supplied workflow input, which let a deploy name one app and point
+# at another's checkout - the database came from the registry and the code did
+# not, so the dump and the thing deployed were different apps. It is
+# registry-derived now, like everything else this script acts on.
+#
+# "-" is the registry's "absent". `path` forbids whitespace in the schema, so
+# the lookup's fields can be word-split, and "-" is not a legal value under it.
+if [ -z "${APP_DIR}" ] && [ "${REG_PATH}" != "-" ]; then
+    # A registry path is absolute, or starts with a literal "~/" - the
+    # two characters, as apps.yml spells them. The shell does not expand
+    # a tilde that arrives inside a variable, so the prefix is stripped
+    # and HOME prepended here.
+    #
+    # Strip-and-compare rather than a `case`, because a quoted "~/"
+    # pattern reads to shellcheck (SC2088) as a tilde someone expected
+    # to expand - which is the very mistake this code exists to avoid.
+    stripped="${REG_PATH#\~/}"
+    if [ "${stripped}" != "${REG_PATH}" ]; then
+        APP_DIR="${HOME}/${stripped}"
+    else
+        APP_DIR="${REG_PATH}"
+    fi
+fi
+APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
+[ -d "${APP_DIR}/.git" ] || {
+    echo "No checkout at ${APP_DIR}. Pass --app-dir if it is elsewhere." >&2
+    exit 1
+}
+cd "${APP_DIR}"
+
+# The APP's compose project throughout: this script only ever runs the app's
+# own image. The database calls that need the platform's project live in
+# bin/deploy and inside the app's own migration hook.
+COMPOSE=(docker compose -f docker-compose.prod.yml)
+BACKUP_DIR="${BACKUP_DIR:-${HOME}/backups}/${APP}"
+MIGRATIONS="${APP_DIR}/deploy/migrations"
+
+freeze() {
+    echo "== FROZEN. Nothing further was changed. ==" >&2
+    if [ -n "${dump:-}" ]; then
+        echo "   pre-deploy dump: ${dump}" >&2
+        [ -f "${dump}.revision" ] && echo "   code was at:     $(cat "${dump}.revision")" >&2
+        [ -f "${dump}.migration" ] && echo "   schema was at:   $(cat "${dump}.migration")" >&2
+    fi
+    echo "   restoring it is a human's decision; see the app's deploy notes." >&2
+    exit 3
+}
+
+# The newest pre-deploy dump is the one this deploy took. bin/deploy writes the
+# git revision beside it, and - where the app has migrations - the revision the
+# DATABASE was at, read from the database itself.
+# `|| true`, and it is what makes the freeze below reachable at all. Under
+# `set -e` with `pipefail` the assignment itself fails when the glob matches
+# nothing, so the script exited 2 here - silently, before the check beneath it
+# ran. The safety net for the worst case, wanting a rollback with nothing to
+# roll back to, had never once been reached. "No dump exists" is an answer this
+# script must be able to act on, not a reason to stop reading.
+# shellcheck disable=SC2012  # ls -t is the intent; filenames here are stamps
+dump="$(ls -1t "${BACKUP_DIR}"/pre-deploy-*.dump 2>/dev/null | head -1 || true)"
+if [ -z "${dump}" ]; then
+    echo "No pre-deploy dump found in ${BACKUP_DIR}." >&2
+    freeze
+fi
+[ -f "${dump}.revision" ] || { echo "No ${dump}.revision" >&2; freeze; }
+
+previous_rev="$(cat "${dump}.revision")"
+echo "==> Deploy failed. Rolling back ${APP} toward ${previous_rev}"
+
+# Tier 2, and only for an app that declares migrations in apps.yml. One that
+# declares none goes straight from here to the image swap, which is exactly
+# right for an app whose schema never changes.
+#
+# The registry says whether the app HAS migrations; the filesystem says whether
+# they can be run. A disagreement freezes rather than being guessed at: taking
+# a missing or non-executable hook for "no migrations" swaps the image back
+# under a migrated schema, which is the crash-loop this tiering exists to
+# prevent. -f as well as -x, because -x is true of a directory.
+if [ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] || [ ! -x "${MIGRATIONS}" ]; }; then
+    echo "${MIGRATIONS} exists but is not an executable file." >&2
+    freeze
+fi
+if [ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has migrations, but ${MIGRATIONS} is not" >&2
+    echo "there to run, so this deploy's schema changes cannot be reversed." >&2
+    freeze
+fi
+if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has no migrations, yet ${MIGRATIONS} exists." >&2
+    echo "The registry and the repository disagree; a person settles that." >&2
+    freeze
+fi
+
+added=""
+if [ "${HAS_MIGRATIONS}" = "true" ]; then
+    # Did THIS deploy add revisions? Compare the code that was deployed against
+    # the code checked out now, and let the app answer - it knows where its own
+    # migrations live and what counts as one.
+    #
+    # Not `|| true`, which is what this was. An erroring hook then yielded ""
+    # and read as "this deploy added nothing", tier 2 was skipped, and the
+    # image went back under a migrated schema. "I could not tell" and "there
+    # were none" are opposite answers.
+    if ! added="$("${MIGRATIONS}" added "${previous_rev}" HEAD)"; then
+        echo "deploy/migrations added failed; cannot tell what to reverse." >&2
+        freeze
+    fi
+else
+    echo "==> ${APP} declares no migrations in apps.yml - none to reverse."
+fi
+
+if [ -n "${added}" ]; then
+    echo "==> This deploy added migrations:"
+    echo "${added}"
+
+    [ -f "${dump}.migration" ] || {
+        echo "No ${dump}.migration - the schema's pre-deploy revision was never" >&2
+        echo "recorded, so there is no safe downgrade target." >&2
+        freeze
+    }
+    target="$(cat "${dump}.migration")"
+    [ -n "${target}" ] || freeze
+
+    echo "==> Downgrading to ${target}"
+    # The hook owns everything specific to the app's migration tool, including
+    # refusing: a revision whose author declared it irreversible must not be
+    # reversed, because undoing it would invent data rather than restore it.
+    # It exits non-zero when it refuses, and a refusal freezes here rather than
+    # continuing into the image swap.
+    #
+    # It also runs from the NEW image on purpose - that is the only one holding
+    # the revisions being reversed - which is the hook's business and not this
+    # script's.
+    "${MIGRATIONS}" downgrade "${target}" || freeze
+fi
+
+echo "==> Restoring the previous image"
+if ! docker image inspect "${APP}-app:previous" >/dev/null 2>&1; then
+    echo "No ${APP}-app:previous image - nothing to swap to." >&2
+    freeze
+fi
+
+# Both `|| freeze`: a failure here exits with the app half-reverted, and the
+# bare form exited 1 without naming the dump a person then needs.
+git checkout --quiet "${previous_rev}" || freeze
+docker tag "${APP}-app:previous" "${APP}-app:local" || freeze
+"${COMPOSE[@]}" up -d || freeze
+
+echo "==> Re-checking health"
+"${PLATFORM_DIR}/bin/health" "${APP}" 180 --app-dir "${APP_DIR}" || freeze
+
+echo
+echo "== Rolled back ${APP} to ${previous_rev} and healthy. =="
+if [ -n "${added}" ]; then
+    echo "== SCHEMA was reversed. DATA was NOT restored. Verify your data. =="
+    echo "== The pre-deploy dump is ${dump} if you need it. =="
+fi

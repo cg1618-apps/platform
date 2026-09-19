@@ -46,11 +46,45 @@ if match[0]["database"] is None:
 print(match[0]["database"])
 ' "${APP}")"
 
-# Apps are cloned beside this repository on a development machine and are
-# wherever they are on the box - the media tracker predates the layout and
-# lives at ~/anime_site - so the path is resolvable but overridable.
+# owner/repo, and the checkout's path where the registry overrides it. Both
+# from the registry rather than from the app's name: the two coincide today,
+# and the registry is what every other lookup here trusts.
+#
+# "-" is the registry's "absent", as in bin/deploy. `path` forbids whitespace
+# in the schema, which is what makes these two fields word-splittable.
+registry="$(python3 -c '
+import re, sys, yaml
+name = sys.argv[1]
+apps = yaml.safe_load(open("apps.yml"))["apps"]
+entry = [a for a in apps if a["name"] == name][0]
+print(re.sub(r"^git@github\.com:|\.git$", "", entry["repo"]), entry.get("path", "-"))
+' "${APP}")"
+read -r SLUG REG_PATH <<<"${registry}"
+
+# Where the checkout is, in precedence order: --env-file, the registry's
+# optional `path`, then <apps dir>/<name>. bin/deploy, bin/health and
+# bin/rollback all resolve it this way. This script reading the registry for
+# the database name while GUESSING the directory is how `provision media`
+# came to look in ~/media/.env for an app whose checkout is ~/anime_site.
 if [ -z "${ENV_FILE}" ]; then
-    ENV_FILE="${APPS_DIR:-${HOME}}/${APP}/.env"
+    APP_DIR="${APPS_DIR:-${HOME}}/${APP}"
+    if [ "${REG_PATH}" != "-" ]; then
+        # A registry path is absolute, or starts with a literal "~/" - the
+        # two characters, as apps.yml spells them. The shell does not expand
+        # a tilde that arrives inside a variable, so the prefix is stripped
+        # and HOME prepended here.
+        #
+        # Strip-and-compare rather than a `case`, because a quoted "~/"
+        # pattern reads to shellcheck (SC2088) as a tilde someone expected
+        # to expand - which is the very mistake this code exists to avoid.
+        stripped="${REG_PATH#\~/}"
+        if [ "${stripped}" != "${REG_PATH}" ]; then
+            APP_DIR="${HOME}/${stripped}"
+        else
+            APP_DIR="${REG_PATH}"
+        fi
+    fi
+    ENV_FILE="${APP_DIR}/.env"
 fi
 [ -f "${ENV_FILE}" ] || {
     echo "No ${ENV_FILE}. Pass --env-file if this app's checkout is elsewhere." >&2
@@ -118,6 +152,45 @@ PY
 chmod 600 "${ENV_FILE}"
 
 echo "wrote POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB into ${ENV_FILE}"
+echo
+
+# The `production` environment, with the owner as a required reviewer. This is
+# the approval gate the deploy workflow's migration lane waits at, and it is
+# the one part of the app contract that exists ONLY as a GitHub setting - no
+# file in either repository creates it. Referencing an environment that does
+# not exist does not fail: GitHub makes it on first use with no protection
+# rules and runs the job. So a provisioned app is gated by construction here,
+# rather than by somebody remembering a checkbox; .github/workflows/deploy-app.yml
+# refuses the deploy if this was never done.
+#
+# Printing rather than failing when `gh` cannot do it. provision's job is the
+# database, this box may have no `gh` and no login, and aborting here would
+# leave an app with a database, a role and a written .env and report failure.
+# The command is exact so the owner can paste it from a machine that is
+# logged in.
+arm_env_cmd() {
+    echo "  gh api -X PUT repos/${SLUG}/environments/production \\"
+    echo "    -F 'prevent_self_review=false' \\"
+    echo "    -F 'reviewers[][type]=User' -F \"reviewers[][id]=\$(gh api user --jq .id)\""
+}
+
+echo "==> Arming the deploy approval gate on ${SLUG}"
+if ! command -v gh >/dev/null 2>&1; then
+    echo "    gh is not installed here. Run this from a machine that has it:"
+    arm_env_cmd
+elif ! reviewer_id="$(gh api user --jq .id 2>/dev/null)" || [ -z "${reviewer_id}" ]; then
+    echo "    gh is not logged in here. Run this from a machine that is:"
+    arm_env_cmd
+elif gh api -X PUT "repos/${SLUG}/environments/production" \
+        -F 'prevent_self_review=false' \
+        -F 'reviewers[][type]=User' -F "reviewers[][id]=${reviewer_id}" \
+        >/dev/null; then
+    echo "    ${SLUG} environment 'production' now requires a reviewer."
+else
+    echo "    Could not arm it - the token may not administer ${SLUG}. Run:"
+    arm_env_cmd
+fi
+
 echo
 echo "The app still has to be restarted to pick them up, and DATABASE_URL in"
 echo "that file - if it sets one - is NOT rewritten: it is the app's own shape"

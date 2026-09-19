@@ -44,6 +44,7 @@ def test_an_unknown_field_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
                 "prot": 8001,
@@ -65,6 +66,7 @@ def test_an_unknown_exposure_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "world-readable",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
@@ -87,6 +89,7 @@ def test_a_hostname_outside_the_domain_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
@@ -108,9 +111,88 @@ def test_no_database_is_legal(schema):
                 "repo": "git@github.com:cg1618-apps/apex.git",
                 "exposure": "public",
                 "health_path": "/",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
         ]
     }
     jsonschema.validate(instance=fine, schema=schema)
+
+
+def entry(**overrides):
+    base = {
+        "name": "media",
+        "hostname": "media.cg1618.com",
+        "port": 8000,
+        "database": "media",
+        "repo": "git@github.com:cg1618-apps/media.git",
+        "exposure": "public",
+        "health_path": "/api/health",
+        "migrations": True,
+        "status": "live",
+        "description": "x",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_migrations_is_required(schema):
+    # The whole point of the key: an app that says nothing about its schema is
+    # an app bin/deploy cannot tell "I have no migrations" from "my hook is
+    # missing". Omitting it must fail here rather than be discovered on the box.
+    bad = entry()
+    del bad["migrations"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance={"apps": [bad]}, schema=schema)
+
+
+def test_migrations_must_be_a_boolean(schema):
+    # The mirror: `true` passes on the same fixture, so a green above means the
+    # required-key rule did the refusing rather than something incidental.
+    jsonschema.validate(instance={"apps": [entry(migrations=True)]}, schema=schema)
+    jsonschema.validate(instance={"apps": [entry(migrations=False)]}, schema=schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance={"apps": [entry(migrations="yes")]}, schema=schema)
+
+
+def test_every_registered_app_declares_migrations(registry):
+    for app in registry["apps"]:
+        assert isinstance(app["migrations"], bool), app["name"]
+
+
+def test_path_is_optional(schema):
+    # Almost every app's checkout is at <apps dir>/<name>. The key exists for
+    # the one that predates the layout.
+    jsonschema.validate(instance={"apps": [entry()]}, schema=schema)
+    jsonschema.validate(
+        instance={"apps": [entry(path="~/anime_site")]}, schema=schema
+    )
+    jsonschema.validate(instance={"apps": [entry(path="/srv/media")]}, schema=schema)
+
+
+def test_a_path_must_be_absolute_or_home_relative(schema):
+    # A relative path would be resolved against whatever directory the deploy
+    # script happens to be in, which is the app's own checkout by then.
+    for bad in ("anime_site", "./anime_site", "~anime_site"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance={"apps": [entry(path=bad)]}, schema=schema)
+
+
+def test_a_path_may_not_contain_whitespace(schema):
+    # bin/deploy, bin/health and bin/rollback read the registry's answer as
+    # whitespace-separated fields. The schema is what makes that safe.
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance={"apps": [entry(path="/srv/my app")]}, schema=schema
+        )
+
+
+def test_the_one_app_that_needs_a_path_has_one(registry):
+    # The media tracker's checkout on the box is ~/anime_site, and that fact
+    # has to live somewhere a caller cannot contradict.
+    by_name = {app["name"]: app for app in registry["apps"]}
+    assert by_name["media"]["path"] == "~/anime_site"
+    for name, app in by_name.items():
+        if name != "media":
+            assert "path" not in app, name

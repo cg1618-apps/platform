@@ -39,19 +39,38 @@ jobs:
       - name: Run the tests
         run: python -m pytest tests/ -q
 
+      # Pinned in requirements-dev.txt rather than floating: ruff's default
+      # rule set changes between releases, so an unpinned lint step fails a
+      # pull request that changed nothing about the code.
+      - name: Lint
+        run: ruff check .
+
       - name: Lint the workflows
         uses: raven-actions/actionlint@v2
 
-      # bin/ holds no shell scripts until the deploy scripts move here in step 4
-      # of the platform sequence. An unguarded glob fails the job on a
-      # repository that simply does not have them yet.
+      # Found by shebang rather than by extension. The scripts in bin/ are
+      # commands, run as `bin/deploy media`, and carry no .sh - so a bin/*.sh
+      # glob lints none of them while looking like it lints them all. The
+      # empty guard stays for the reason it was written: an unguarded list
+      # fails the job on a repository that has no scripts.
+      #
+      # By FIRST line, and by more than one shebang. `grep -rl` matched the
+      # pattern anywhere in a file, missed `#!/bin/bash`, `#!/bin/sh` and
+      # `#!/usr/bin/env sh` entirely, and recursed into __pycache__ - the same
+      # "looks thorough, lints nothing" shape the shebang search replaced.
       - name: Lint the shell scripts
         run: |
-          shopt -s nullglob
-          scripts=(bin/*.sh)
+          scripts=()
+          while IFS= read -r -d '' f; do
+            case "$(head -n 1 "$f")" in
+              '#!'*/sh|'#!'*/sh\ *|'#!'*/bash|'#!'*/bash\ *|'#!'*env\ sh|'#!'*env\ bash)
+                scripts+=("$f") ;;
+            esac
+          done < <(find bin -type f -not -path '*/__pycache__/*' -print0)
           if [ ${#scripts[@]} -eq 0 ]; then
             echo "No shell scripts yet."
             exit 0
           fi
+          echo "linting: ${scripts[*]}"
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck "${scripts[@]}"

@@ -180,3 +180,13 @@ reference why, because it may be a starting point that has not been revisited
 rather than a decision.** An app that finds the reference wrong and says so is
 the rule working, not an app going off-style. What the section rules out is
 diverging silently, not diverging.
+
+**Three in one evening is not a base rate, and reading it as one inverts the
+rule.** These surfaced together because `food` was asking convention questions
+in detail and every answer was verified against the file rather than relayed —
+a high-attention night, not a typical one. The conclusion is that the
+reference is a starting point which has to defend itself when asked. It is not
+that the reference is usually wrong: an app that stops reading `media` because
+of this entry has taken exactly the wrong lesson from it, and will reinvent
+conventions that were right all along. Ask, and believe the answer when it
+holds up.

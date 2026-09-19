@@ -22,6 +22,10 @@ ingress:
 
   - hostname: media.cg1618.com
     service: http://media-app:8000
+  # travel: cloudflare-access - Cloudflare enforces
+  # authentication in front of this rule.
+  - hostname: travel.cg1618.com
+    service: http://travel-app:8002
 
   # Required catch-all. cloudflared refuses to start without it, and it must be
   # the last rule.

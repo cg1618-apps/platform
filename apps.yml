@@ -60,7 +60,7 @@ apps:
     exposure: cloudflare-access
     health_path: /api/health
     migrations: true
-    status: planned
+    status: live
     description: Packing and buying lists, transport information, and the current trip
 
   - name: art

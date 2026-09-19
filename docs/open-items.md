@@ -303,3 +303,44 @@ Not urgent on a development machine, where the recovery is one `up -d` and the
 volume survives. Recorded because the same keystroke on the box has a different
 blast radius, and because the reason it is easy to get wrong is a rule this
 repository correctly insists on.
+
+## `bin/rollback` names a document three apps do not have
+
+Tier 3 freezes and tells the operator:
+
+```
+   restoring it is a human's decision; see the app's deploy notes.
+```
+
+`media` has them — `deploy/README.md`, plus `docs/deployment-selfhost.md`.
+**`food`, `travel` and `art` have none**: their `deploy/` holds only the hook
+(and `food`'s `gated-paths`), and neither has a deployment page under `docs/`.
+
+So at the worst moment the platform produces — production frozen mid-rollback,
+a human deciding whether to restore a dump — the script points three of four
+apps at a document that does not exist. The pointer was written when `media`
+was the only app, and it is still correct for `media`.
+
+**This is due before the first migration release, not after.** `food` and
+`travel` are both at `0001_baseline` on the box, so whichever releases first is
+the platform's first migration deploy, and tier 3 is reachable from it.
+
+What such a page has to answer, and the content already exists — it was worked
+out the hard way while preparing `food`'s release:
+
+- **What rolling back costs, stated as data rather than as a procedure.**
+  `bin/rollback` never restores; it reverses schema through the app's own hook.
+  For a first migration that creates the tables, downgrading drops them and
+  everything in them. The pre-deploy dump is not a gentler path: it predates
+  the release, so restoring it discards every write since. **There is no route
+  that keeps the data**, and the real choice is roll back and lose it or fix
+  forward. A reader who assumes the dump is the safe option — as one session
+  did, reasoning plausibly from the true fact that the dump is taken first —
+  will reach for it at exactly the wrong moment.
+- **Which revision the database is at**, so the downgrade target in a freeze
+  message can be recognised rather than trusted.
+- **Where the dumps are**, matching what the freeze prints.
+
+This is narrower and more urgent than "three apps have no `docs/` skeleton"
+above. That item is about a shape; this is one named file the tooling already
+points at.

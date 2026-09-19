@@ -97,6 +97,9 @@ jobs:
             > "${GITHUB_WORKSPACE}/.ci-credentials.json"
 
           cat > .env <<EOF
+          # The name the box uses, so container names and the network match
+          # what production has rather than the CI directory name.
+          COMPOSE_PROJECT_NAME=cg1618
           POSTGRES_USER=ci
           POSTGRES_PASSWORD=ci
           POSTGRES_DB=ci

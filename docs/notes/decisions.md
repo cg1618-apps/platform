@@ -144,3 +144,39 @@ Rejected: leaving the registry silent and the policy Cloudflare-side only. It
 is cheaper, and it reproduces exactly the gap `bin/check-exposure` was written
 to close — a gate asserted in a dashboard this repository cannot see, with
 nothing connecting the claim to the reality.
+
+## `media` is the reference because it is read, not because it is right
+
+"House style" names `media` the reference implementation the other three copy
+conventions from. That is the correct rule and it stays. What it must not be
+read as is that `media` is where the truth lives, because on the day it was
+written `media` was measurably wrong in places the apps copying it were
+right.
+
+Three instances, all from 2026-09-19:
+
+- **Migration naming.** `media` uses mnemonic revision ids throughout.
+  `food`, `travel` and `art` each carry `0001_baseline.py` from the same app
+  skeleton, so three of four apps agreed and all three were inheriting one
+  decision nobody made. Reading the neighbours rather than the reference sent
+  `travel` to `0002_packing`, and very nearly sent a correction to `food`,
+  which was the only new app actually following `media`.
+- **`strictPort`.** `food`, `travel` and `art` all set it. `media` does not.
+  The three apps that copied the reference are ahead of it, because they made
+  a choice it never revisited.
+- **The frontend fetch wrapper.** `media`'s renders an array-shaped Pydantic
+  422 as `[object Object]` and discards the status code, which makes its own
+  documented 409 contract unusable. `food` did not inherit either, because
+  when it asked about the convention it was told to write the fixed wrapper
+  rather than copy the shipped one.
+
+**The mechanism that protected `food` was not `media` being correct.** `media`
+is still broken on both counts. It was `media` being asked to justify itself
+and answering honestly.
+
+So the rule in practice: **read the reference rather than the neighbours,
+because the neighbours may all be inheriting one unmade decision — and ask the
+reference why, because it may be a starting point that has not been revisited
+rather than a decision.** An app that finds the reference wrong and says so is
+the rule working, not an app going off-style. What the section rules out is
+diverging silently, not diverging.

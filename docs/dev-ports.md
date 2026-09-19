@@ -29,10 +29,24 @@ Get-Process -Id <that PID>                           # finds nothing
 ```
 
 **What causes it.** With `--reload`, uvicorn runs a reloader parent and a
-worker, and the worker inherits the listening socket. Killing the worker first,
-or the parent first and then the worker, leaves the survivor holding a socket
-nothing owns any more. Closing the terminal **pane** releases the whole tree
-cleanly; killing a process inside it is what strands the socket.
+worker, and the worker inherits the listening socket. The worker outlives its
+whole ancestry: terminating the hosting shell does **not** reap it, measured —
+a `Stop-Process -Force` on the shell left the port held and two Python
+processes alive.
+
+**Shut the server down before closing the window.** Press Ctrl+C in the uvicorn
+pane and wait for it to exit. Anything that kills the shell without letting it
+signal its children strands the worker with the socket. Whether closing a
+terminal *tab* is gentler depends on a console close event reaching the process
+group, which is not worth relying on when Ctrl+C is unambiguous — and that path
+has not been tested here, so this page does not claim it either way.
+
+**Verify before restarting**, rather than finding out from a dev script whose
+message scrolls away:
+
+```powershell
+Get-NetTCPConnection -LocalPort <port> -State Listen -ErrorAction SilentlyContinue
+```
 
 **Why the obvious search misses it.** The worker is the *system* Python, not the
 app's venv, and its command line is:
@@ -100,6 +114,41 @@ The probe makes it worse rather than better, because it tests whether a port is
 *currently listening*, not whether it is *allocated*. An idle slot looks
 identical to a free one.
 
-Fixing it belongs to `media`, and the fix is to allocate above the registry
-rather than into it — the reserved block ends at 8099, so a worktree should
-start well clear of the apps, not at the next number after `media`.
+Fixing it belongs to `media`. So that a constant in one repository and a table
+in another cannot disagree, **the floor is 8050**: apps keep `8000`-`8049`, and
+every worktree allocates from `8050` upward within the schema's `8000`-`8099`
+block. Four apps hold 8000-8003 today and 46 slots is more headroom than the
+registry will plausibly need, so a worktree can never walk into an app's slot.
+
+A worktree's Vite port follows the same derivation as an app's,
+`5173 + (port - 8000)`, so a worktree backend on 8050 pairs with Vite on 5223.
+
+### The frontend half of the same defect
+
+`worktree.ps1` allocates no Vite port at all — it prints a uvicorn command and
+nothing else — and two things in `media/frontend/vite.config.js` finish the
+job:
+
+- **`port: 5173` with no `strictPort`.** Vite silently auto-increments when
+  5173 is busy, and the main tree holds 5173, so a worktree's Vite takes
+  **5174, which is `food`'s registered port**, and reports success. Quieter
+  than the backend case, because there is not even a deliberate probe to be
+  wrong about — it is a default.
+- **`proxy` hard-coded to `http://127.0.0.1:8000`** for `/api` and `/static`.
+  A worktree running its own uvicorn on another port still gets a frontend
+  talking to the **main tree's** backend, against the main tree's database. It
+  looks like it works, which is worse than a bind failure: a bind failure is
+  loud, and this shows plausible data from the wrong database.
+
+So a ports fix that does not also cover the proxy target leaves the worktree
+only appearing to be isolated.
+
+**`media` is the only app missing `strictPort`.** `food`, `travel` and `art`
+all set it. That is worth stating because `media` is the reference
+implementation, and the reference is not uniformly ahead of the apps that
+copied it — here the three newer apps are right and the reference is wrong.
+
+**None of this is enforced by a test.** `media` has no Pester and no
+`*.Tests.ps1`; its `tests/` is pytest only, so a fix to `worktree.ps1` is
+unproven unless Pester is adopted, which is a larger decision than the fix.
+Saying so is better than implying coverage that does not exist.

@@ -7,6 +7,12 @@ exposure rule is about which value is allowed for which app, which a schema
 could only express as an enum per app name, restated every time an app is
 added.
 
+`migrations` needs no rule here - it is per-entry and boolean, so the schema's
+`required` list is the whole check. It is listed in this docstring anyway
+because the thing it protects is not in this file: bin/deploy and bin/rollback
+read it, and an app declaring `true` with no executable deploy/migrations is
+refused there rather than deployed with no approval gate.
+
 This runs in CI, and later again inside bin/deploy on the box. Shifting a check
 left is not a reason to trust that it ran - the same reason deploy.sh re-checks
 MIGRATION_APPROVED rather than believing GitHub's gate.

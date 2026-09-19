@@ -44,6 +44,7 @@ def test_an_unknown_field_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
                 "prot": 8001,
@@ -65,6 +66,7 @@ def test_an_unknown_exposure_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "world-readable",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
@@ -87,6 +89,7 @@ def test_a_hostname_outside_the_domain_is_rejected(schema):
                 "repo": "git@github.com:cg1618-apps/media.git",
                 "exposure": "public",
                 "health_path": "/api/health",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
@@ -108,9 +111,51 @@ def test_no_database_is_legal(schema):
                 "repo": "git@github.com:cg1618-apps/apex.git",
                 "exposure": "public",
                 "health_path": "/",
+                "migrations": True,
                 "status": "live",
                 "description": "x",
             }
         ]
     }
     jsonschema.validate(instance=fine, schema=schema)
+
+
+def entry(**overrides):
+    base = {
+        "name": "media",
+        "hostname": "media.cg1618.com",
+        "port": 8000,
+        "database": "media",
+        "repo": "git@github.com:cg1618-apps/media.git",
+        "exposure": "public",
+        "health_path": "/api/health",
+        "migrations": True,
+        "status": "live",
+        "description": "x",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_migrations_is_required(schema):
+    # The whole point of the key: an app that says nothing about its schema is
+    # an app bin/deploy cannot tell "I have no migrations" from "my hook is
+    # missing". Omitting it must fail here rather than be discovered on the box.
+    bad = entry()
+    del bad["migrations"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance={"apps": [bad]}, schema=schema)
+
+
+def test_migrations_must_be_a_boolean(schema):
+    # The mirror: `true` passes on the same fixture, so a green above means the
+    # required-key rule did the refusing rather than something incidental.
+    jsonschema.validate(instance={"apps": [entry(migrations=True)]}, schema=schema)
+    jsonschema.validate(instance={"apps": [entry(migrations=False)]}, schema=schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance={"apps": [entry(migrations="yes")]}, schema=schema)
+
+
+def test_every_registered_app_declares_migrations(registry):
+    for app in registry["apps"]:
+        assert isinstance(app["migrations"], bool), app["name"]

@@ -1,6 +1,6 @@
 # The application registry
 
-Last verified: 2026-09-18
+Last verified: 2026-09-19
 
 `apps.yml` at the root of this repository is the one source of truth about which
 applications exist on the box and what each one is allowed to claim. The
@@ -18,6 +18,7 @@ apps:
     repo: git@github.com:cg1618-apps/media.git
     exposure: public         # public | cloudflare-access | lan-only
     health_path: /api/health
+    migrations: true         # does this app ship deploy/migrations?
     description: Media tracker & database
 ```
 
@@ -32,6 +33,16 @@ share a stack. `/api/health` is the media tracker's answer — it opens a real
 database session and compares `alembic_version` to the head the running code
 expects — not a platform fact. An app written against something else exposes
 something else, so the app declares it and the deploy script reads it.
+
+`migrations` is a **declaration**, and it is the reason a lost mode bit cannot
+disable the approval gate. `true` means the app ships an executable
+`deploy/migrations`; `bin/deploy` and `bin/rollback` refuse when it is missing
+or not executable, rather than taking silence for "this app has no schema".
+`false` means the schema never changes, and a hook present anyway is refused
+too — the registry and the repository disagree, and which one is right is a
+person's decision rather than a script's guess. Before the key existed, an
+absent hook and a hook that had lost its `+x` were the same observation, and
+the second one deploys an unapproved migration with no rollback target.
 
 Only applications that **exist** are listed. An entry claims a hostname, a port
 and a database; claiming them for something unbuilt is how a registry stops
@@ -65,6 +76,11 @@ ignored by every generator downstream.
   refusing it meaningful.
 - **That each app names its own repository**, so a copy-pasted entry cannot
   point two apps at one repo.
+
+`migrations` needs no rule in the validator: it is per-entry and boolean, so
+the schema's `required` list is the whole check. What it protects lives
+elsewhere — `bin/deploy` and `bin/rollback` compare it against what is actually
+on disk, and refuse when the two disagree.
 
 Both run in CI on every pull request, and the same validator is called again
 inside `bin/deploy` when that arrives. Shifting a check left is not a reason to

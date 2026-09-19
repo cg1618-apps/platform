@@ -8,6 +8,14 @@
 # hostname, the port and the database name the moment the app is planned - that
 # is what stops a second app taking them - but only a `live` app is routed by
 # the tunnel. Routing a planned app would publish a hostname that answers 502.
+#
+# `migrations` is a declaration, not a description. `true` means the app ships
+# an executable `deploy/migrations`, and bin/deploy REFUSES when it cannot find
+# one rather than deploying with no approval gate and no rollback target.
+# `false` means the app's schema never changes, and a hook turning up anyway is
+# a refusal too - the registry and the repository disagree, and which of them is
+# right is a person's call. The key exists because silence used to mean both "I
+# have no schema" and "my hook lost its mode bit".
 apps:
   - name: media
     hostname: media.cg1618.com
@@ -16,6 +24,7 @@ apps:
     repo: git@github.com:cg1618-apps/media.git
     exposure: public
     health_path: /api/health
+    migrations: true
     status: live
     description: Media tracker & database
 
@@ -26,6 +35,7 @@ apps:
     repo: git@github.com:cg1618-apps/food.git
     exposure: public
     health_path: /health
+    migrations: true
     status: planned
     description: Ingredients, recipes, what is cookable, and the cooking schedule
 
@@ -41,6 +51,7 @@ apps:
     # bump, not a protection.
     exposure: cloudflare-access
     health_path: /api/health
+    migrations: true
     status: planned
     description: Packing and buying lists, transport information, and the current trip
 
@@ -55,5 +66,6 @@ apps:
     # and be tested for refusal - before it happens.
     exposure: cloudflare-access
     health_path: /health
+    migrations: true
     status: planned
     description: Practice records, references, schedule, and the drawing roadmap

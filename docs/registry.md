@@ -258,8 +258,9 @@ stopping the container stops all of them.
      instead of deploying.
    - **An executable `deploy/migrations` if — and only if — its `apps.yml`
      entry says `migrations: true`.** The two must agree: `bin/deploy` refuses
-     when the registry declares migrations and no runnable hook is there, and
-     refuses just as loudly when it declares none and a hook exists anyway.
+     when the registry declares migrations and the commit being deployed
+     carries no runnable hook, and refuses just as loudly when it declares none
+     and a hook exists anyway.
 
    `deploy/migrations` is how the platform asks an app about its own schema,
    because reading a version table, deciding what a deploy adds and reversing a
@@ -267,7 +268,13 @@ stopping the container stops all of them.
    subcommands:
 
    - **`current`** prints the revision the database is at, read from the
-     database rather than from the image.
+     database rather than from the image. **An app whose schema has never
+     been migrated has no version table at all, and the answer there is
+     `base`, not an error** — that is every app's first deploy, and a hook
+     that fails instead refuses the very deploy that would create the schema.
+     `base` is Alembic's name for the point before the first revision and a
+     real `downgrade` target, so a rollback recorded against it reverses the
+     whole schema and restores a dump that was taken empty.
    - **`added <from> <to>`** lists the migration files a deploy would add, and
      prints nothing when there are none. Printing nothing and failing are
      opposite answers: the platform refuses on a non-zero exit rather than
@@ -285,6 +292,19 @@ stopping the container stops all of them.
      head and the target for it before running anything. Another app may mark
      it another way; what the platform requires is that the hook knows the
      marker and stops.
+
+   **On a `--ci` deploy the hook is read from the commit being deployed, not
+   from the checkout on the box.** Both questions asked before the pull are
+   about the incoming code, and the outgoing hook has no better claim on
+   either: `added HEAD origin/main` asks which revision files arrive, and
+   `current` asks the database, which no version of the hook changes. Reading
+   the checkout's copy instead breaks two things that matter — an app's first
+   deploy, whose checkout was cloned to provision it and so predates its own
+   hook, and any fix TO a hook, which would have to be carried to the box by
+   hand before the run that ships it could use it. `bin/deploy` writes the
+   incoming copy to `deploy/.migrations-incoming` beside the real one, because
+   the hook finds its app root from its own path, and removes it on exit. A
+   manual run has no such gap and uses the checkout in front of you.
 
    The hook is called with **`PLATFORM_DIR` exported**, naming the platform
    checkout. A hook that needs the shared PostgreSQL — `current` does — reaches

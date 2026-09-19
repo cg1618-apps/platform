@@ -74,12 +74,20 @@ read -r PORT HEALTH_PATH REG_PATH <<<"${registry}"
 # "-" is the registry's "absent". `path` forbids whitespace in the schema, so
 # the lookup's fields can be word-split, and "-" is not a legal value under it.
 if [ -z "${APP_DIR}" ] && [ "${REG_PATH}" != "-" ]; then
-    # A leading ~/ is the registry's spelling of $HOME. The shell does not
-    # expand a tilde that arrives inside a variable, so it is done here.
-    case "${REG_PATH}" in
-        "~/"*) APP_DIR="${HOME}/${REG_PATH#\~/}" ;;
-        *)     APP_DIR="${REG_PATH}" ;;
-    esac
+    # A registry path is absolute, or starts with a literal "~/" - the
+    # two characters, as apps.yml spells them. The shell does not expand
+    # a tilde that arrives inside a variable, so the prefix is stripped
+    # and HOME prepended here.
+    #
+    # Strip-and-compare rather than a `case`, because a quoted "~/"
+    # pattern reads to shellcheck (SC2088) as a tilde someone expected
+    # to expand - which is the very mistake this code exists to avoid.
+    stripped="${REG_PATH#\~/}"
+    if [ "${stripped}" != "${REG_PATH}" ]; then
+        APP_DIR="${HOME}/${stripped}"
+    else
+        APP_DIR="${REG_PATH}"
+    fi
 fi
 APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
 [ -f "${APP_DIR}/docker-compose.prod.yml" ] || {

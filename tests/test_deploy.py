@@ -544,10 +544,18 @@ def test_a_home_relative_registry_path_is_expanded():
     # literal "~/anime_site" would become a directory called "~" beside the
     # runner's cwd - and the checkout guard would then say "no checkout at
     # ~/anime_site", which is exactly what the registry says there is.
+    #
+    # The mechanism, not its spelling: strip a literal "~/" off the front and
+    # prepend HOME when that actually removed something. It was a `case` with
+    # a quoted "~/" pattern, which shellcheck reads (SC2088) as a tilde
+    # somebody expected the shell to expand - the very mistake this avoids.
     for script in SCRIPTS:
         body = code(script)
-        assert '"~/"*)' in body, script
-        assert r'${HOME}/${REG_PATH#\~/}' in body, script
+        assert r'stripped="${REG_PATH#\~/}"' in body, script
+        assert '[ "${stripped}" != "${REG_PATH}" ]' in body, script
+        assert 'APP_DIR="${HOME}/${stripped}"' in body, script
+        # And the other arm: an absolute path is used as it stands.
+        assert 'APP_DIR="${REG_PATH}"' in body, script
 
 
 def test_the_freeze_message_the_workflow_greps_for_is_exactly_that_string():

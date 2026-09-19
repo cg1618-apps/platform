@@ -142,3 +142,12 @@ def test_the_environment_flags_are_typed():
         if "prevent_self_review" in line:
             assert "-F 'prevent_self_review" in line, line
             assert "-f 'prevent_self_review" not in line, line
+
+
+def test_the_registry_path_is_expanded_the_same_way_as_the_other_scripts():
+    # Same mechanism, same reasoning: strip a literal "~/" and prepend HOME
+    # when that removed something. Four copies of one idea, and a fifth
+    # spelling would be a fifth thing to verify.
+    body = code()
+    assert r'stripped="${REG_PATH#\~/}"' in body
+    assert 'APP_DIR="${HOME}/${stripped}"' in body

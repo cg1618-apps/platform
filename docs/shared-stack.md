@@ -116,6 +116,17 @@ re-resolves the name on every open.
 `tests/test_deploy.py` asserts it, so a file mount cannot come back.
 
 The one exception is the tunnel credentials, which are mounted from outside
-the repository by absolute path. Nothing rewrites that file, and it nests
-inside the `cloudflared` directory mount — docker resolves nested mounts by
-depth, so the more specific one still lands on top.
+the repository by absolute path. Nothing rewrites that file, so the inode
+problem does not apply to it.
+
+**And never nested.** A mount whose destination contains another mount's
+destination makes docker create the inner mountpoint inside the outer mount,
+which fails outright when the outer one is read-only — the container exits
+with `read-only file system`. That took the tunnel, and so every hostname on
+the box, down for a minute and a half. The tunnel's config directory is
+therefore mounted at `/etc/cloudflared/conf` rather than `/etc/cloudflared`,
+so it is a sibling of the credentials file rather than its parent. Making the
+mountpoint exist is not an alternative: that file is a credential and is never
+committed.
+
+`tests/test_deploy.py` asserts this too.

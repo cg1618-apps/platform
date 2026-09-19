@@ -735,3 +735,40 @@ def test_no_single_file_bind_mounts_in_the_production_stack():
     for source in mounts:
         path = ROOT / source[2:]
         assert path.is_dir(), f"{source} is a file bind mount; mount its directory"
+
+
+def test_no_bind_mount_contains_another():
+    """A read-only mount cannot host a mountpoint docker has to create.
+
+    Mounting a directory at /etc/cloudflared while the credentials mount
+    lands at /etc/cloudflared/credentials.json means runc must create that
+    mountpoint inside a read-only mount. It cannot: the container dies with
+    "read-only file system", and for the tunnel that is every hostname on the
+    box at once. Making the mountpoint exist is not the fix either - the file
+    is a credential and is never committed.
+
+    Siblings, always. This is the test the outage did not have.
+    """
+    compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+
+    service = None
+    destinations: dict[str, list[str]] = {}
+    for line in compose.splitlines():
+        if re.match(r"^  [a-z0-9_-]+:$", line):
+            service = line.strip().rstrip(":")
+        stripped = line.strip()
+        if service and stripped.startswith("- ") and ":" in stripped:
+            parts = stripped[2:].split(":")
+            if len(parts) >= 2 and parts[1].startswith("/"):
+                destinations.setdefault(service, []).append(parts[1])
+
+    assert destinations, "found no bind mounts at all - this test would pass vacuously"
+
+    for service, paths in destinations.items():
+        for outer in paths:
+            for inner in paths:
+                if outer == inner:
+                    continue
+                assert not inner.startswith(outer.rstrip("/") + "/"), (
+                    f"{service}: {outer} contains {inner}; mount them as siblings"
+                )

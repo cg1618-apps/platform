@@ -24,6 +24,11 @@
 set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Exported for the app's deploy/migrations hook, which reaches back into the
+# platform's compose project. This process is the only one that knows the
+# path authoritatively; a hook left to guess ${HOME}/cg1618 is right until
+# the checkout moves.
+export PLATFORM_DIR
 
 APP=""
 APP_DIR=""
@@ -32,7 +37,13 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
         -*)        echo "unknown option: $1" >&2; exit 1 ;;
-        *)         APP="$1" ;;
+        # One app per run, named once: a second positional used to replace
+        # the first silently.
+        *)         if [ -n "${APP}" ]; then
+                       echo "unexpected argument '$1'; ${APP} was already named." >&2
+                       exit 1
+                   fi
+                   APP="$1" ;;
     esac
     shift
 done
@@ -42,13 +53,20 @@ done
 # Validated against the registry for the same reason bin/deploy is: rolling
 # back a name that is not an app would hunt for dumps that cannot exist and
 # freeze, which reads as a missing backup rather than as a typo.
-python3 -c '
+#
+# It also reports whether the app declares migrations, which is what decides
+# tier 2 - a declaration in the registry rather than the presence of a file.
+HAS_MIGRATIONS="$(python3 -c '
 import sys, yaml
 name = sys.argv[1]
 apps = yaml.safe_load(open(sys.argv[2]))["apps"]
-if not [a for a in apps if a["name"] == name]:
+match = [a for a in apps if a["name"] == name]
+if not match:
     sys.exit(f"{name} is not in apps.yml")
-' "${APP}" "${PLATFORM_DIR}/apps.yml"
+if "migrations" not in match[0]:
+    sys.exit(f"{name} does not declare migrations: in apps.yml")
+print(str(match[0]["migrations"]).lower())
+' "${APP}" "${PLATFORM_DIR}/apps.yml")"
 
 APP_DIR="${APP_DIR:-${APPS_DIR:-${HOME}}/${APP}}"
 [ -d "${APP_DIR}/.git" ] || {
@@ -89,17 +107,46 @@ fi
 previous_rev="$(cat "${dump}.revision")"
 echo "==> Deploy failed. Rolling back ${APP} toward ${previous_rev}"
 
-# Tier 2, and only for an app that has migrations at all. One with no
-# deploy/migrations goes straight from here to the image swap, which is exactly
+# Tier 2, and only for an app that declares migrations in apps.yml. One that
+# declares none goes straight from here to the image swap, which is exactly
 # right for an app whose schema never changes.
+#
+# The registry says whether the app HAS migrations; the filesystem says whether
+# they can be run. A disagreement freezes rather than being guessed at: taking
+# a missing or non-executable hook for "no migrations" swaps the image back
+# under a migrated schema, which is the crash-loop this tiering exists to
+# prevent. -f as well as -x, because -x is true of a directory.
+if [ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] || [ ! -x "${MIGRATIONS}" ]; }; then
+    echo "${MIGRATIONS} exists but is not an executable file." >&2
+    freeze
+fi
+if [ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has migrations, but ${MIGRATIONS} is not" >&2
+    echo "there to run, so this deploy's schema changes cannot be reversed." >&2
+    freeze
+fi
+if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has no migrations, yet ${MIGRATIONS} exists." >&2
+    echo "The registry and the repository disagree; a person settles that." >&2
+    freeze
+fi
+
 added=""
-if [ -x "${MIGRATIONS}" ]; then
+if [ "${HAS_MIGRATIONS}" = "true" ]; then
     # Did THIS deploy add revisions? Compare the code that was deployed against
     # the code checked out now, and let the app answer - it knows where its own
     # migrations live and what counts as one.
-    added="$("${MIGRATIONS}" added "${previous_rev}" HEAD || true)"
+    #
+    # Not `|| true`, which is what this was. An erroring hook then yielded ""
+    # and read as "this deploy added nothing", tier 2 was skipped, and the
+    # image went back under a migrated schema. "I could not tell" and "there
+    # were none" are opposite answers.
+    if ! added="$("${MIGRATIONS}" added "${previous_rev}" HEAD)"; then
+        echo "deploy/migrations added failed; cannot tell what to reverse." >&2
+        freeze
+    fi
 else
-    echo "==> ${APP} ships no deploy/migrations - no migrations to reverse."
+    echo "==> ${APP} declares no migrations in apps.yml - none to reverse."
 fi
 
 if [ -n "${added}" ]; then
@@ -133,8 +180,10 @@ if ! docker image inspect "${APP}-app:previous" >/dev/null 2>&1; then
     freeze
 fi
 
-git checkout --quiet "${previous_rev}"
-docker tag "${APP}-app:previous" "${APP}-app:local"
+# Both `|| freeze`: a failure here exits with the app half-reverted, and the
+# bare form exited 1 without naming the dump a person then needs.
+git checkout --quiet "${previous_rev}" || freeze
+docker tag "${APP}-app:previous" "${APP}-app:local" || freeze
 "${COMPOSE[@]}" up -d || freeze
 
 echo "==> Re-checking health"

@@ -30,7 +30,16 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
         -*)        echo "unknown option: $1" >&2; exit 1 ;;
-        *)         if [ -z "${APP}" ]; then APP="$1"; else TIMEOUT="$1"; fi ;;
+        # An app, then a timeout, and nothing after that. A third positional
+        # used to replace the timeout silently.
+        *)         if [ -z "${APP}" ]; then
+                       APP="$1"
+                   elif [ -z "${TIMEOUT}" ]; then
+                       TIMEOUT="$1"
+                   else
+                       echo "unexpected argument '$1'." >&2
+                       exit 1
+                   fi ;;
     esac
     shift
 done

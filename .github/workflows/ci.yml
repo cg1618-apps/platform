@@ -47,12 +47,24 @@ jobs:
       # glob lints none of them while looking like it lints them all. The
       # empty guard stays for the reason it was written: an unguarded list
       # fails the job on a repository that has no scripts.
+      #
+      # By FIRST line, and by more than one shebang. `grep -rl` matched the
+      # pattern anywhere in a file, missed `#!/bin/bash`, `#!/bin/sh` and
+      # `#!/usr/bin/env sh` entirely, and recursed into __pycache__ - the same
+      # "looks thorough, lints nothing" shape the shebang search replaced.
       - name: Lint the shell scripts
         run: |
-          mapfile -t scripts < <(grep -rls '^#!/usr/bin/env bash' bin/ || true)
+          scripts=()
+          while IFS= read -r -d '' f; do
+            case "$(head -n 1 "$f")" in
+              '#!'*/sh|'#!'*/sh\ *|'#!'*/bash|'#!'*/bash\ *|'#!'*env\ sh|'#!'*env\ bash)
+                scripts+=("$f") ;;
+            esac
+          done < <(find bin -type f -not -path '*/__pycache__/*' -print0)
           if [ ${#scripts[@]} -eq 0 ]; then
             echo "No shell scripts yet."
             exit 0
           fi
+          echo "linting: ${scripts[*]}"
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck "${scripts[@]}"

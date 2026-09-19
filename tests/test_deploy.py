@@ -76,13 +76,42 @@ def test_they_parse():
     exe = usable_bash()
     if exe is None:
         pytest.skip("no working bash on this machine")
-    for script in SCRIPTS:
+    for script in shell_scripts():
         subprocess.run([exe, "-n", str(script)], check=True)
 
 
+SHEBANGS = ("#!/usr/bin/env bash", "#!/usr/bin/env sh", "#!/bin/bash", "#!/bin/sh")
+
+
+def shell_scripts() -> list[Path]:
+    """Every shell script in bin/, found by first line the way CI finds them.
+
+    Not the three new ones: covering only those is exactly how bin/provision
+    stayed 100644 through the change that added this file.
+    """
+    found = []
+    for path in sorted((ROOT / "bin").rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        first = path.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
+        if first and first[0].startswith(SHEBANGS):
+            found.append(path)
+    return found
+
+
+def test_the_shell_scripts_are_found_at_all():
+    # The guard on the guard: a detection that finds nothing passes every
+    # assertion below without checking a thing.
+    names = {p.name for p in shell_scripts()}
+    assert {"deploy", "health", "rollback", "provision"} <= names, names
+
+
 def test_they_are_committed_executable():
-    # A shell script committed 100644 is a shell script the box cannot run.
-    for script in SCRIPTS:
+    # A shell script committed 100644 is a shell script the box cannot run,
+    # and a lost mode bit is also what makes an app's migration hook vanish
+    # silently - which is why this covers EVERY script in bin/ rather than the
+    # three this file was written for.
+    for script in shell_scripts():
         rel = script.relative_to(ROOT).as_posix()
         out = subprocess.run(
             ["git", "ls-tree", "HEAD", "--", rel],
@@ -106,14 +135,45 @@ def test_deploy_exits_two_when_unhealthy_and_one_when_it_refuses():
     assert body.count("exit 1") >= 3
 
 
-def test_exit_two_belongs_to_the_health_check_and_nothing_else():
+def test_exit_two_begins_at_the_pull_and_exit_one_ends_there():
     # The workflow reads the distinction to decide whether rolling back is
-    # correct. A second exit 2 anywhere else would roll back a deploy that
-    # never touched the box.
+    # correct, and the pull is where "the deploy ran" begins. Before it,
+    # nothing was touched and a rollback would be wrong; after it, `compose up
+    # --build` has migrated the database, so a failure is an unhealthy deploy
+    # rather than a refusal.
+    #
+    # The window-and-substring version of this test accepted dead code: a
+    # gutted script that exited 1 before ever reaching the health check, with
+    # `exit 2` unreachable below it, passed.
     body = code(DEPLOY)
-    assert body.count("exit 2") == 1
-    tail = body[body.index("exit 2") - 400 : body.index("exit 2")]
-    assert "bin/health" in tail or "health" in tail
+    pull = body.index("git pull --ff-only")
+
+    # Exactly two: the trap armed at the pull, and the explicit one after the
+    # health check. A third is an exit 2 somewhere nobody reasoned about.
+    assert body.count("exit 2") == 2, body.count("exit 2")
+    assert body.index("trap 'exit 2' ERR") > pull
+
+    health = body.index('"${PLATFORM_DIR}/bin/health"')
+    assert health > pull
+    assert body.rindex("exit 2") > health
+
+    # And nothing refuses after the pull. Telling the workflow "it refused to
+    # start, do not roll back" over a database that may have migrated is the
+    # wrong side of the contract.
+    assert "exit 1" not in body[pull:], body[pull:]
+
+
+def test_everything_that_makes_a_rollback_possible_precedes_the_pull():
+    # A bin/deploy that never dumped, never checked the dump and never
+    # recorded the schema revision passed 23 of the 24 tests this file had.
+    # Nothing mentioned pg_dump; nothing asserted the order the script's own
+    # docstring calls its purpose.
+    body = code(DEPLOY)
+    pull = body.index("git pull --ff-only")
+    assert body.index("pg_dump") < pull
+    assert body.index('[ ! -s "${dump}" ]') < pull
+    assert body.index('"${dump}.migration"') < pull
+    assert body.index('git rev-parse HEAD > "${dump}.revision"') < pull
 
 
 def test_rollback_freezes_rather_than_guessing():
@@ -142,8 +202,15 @@ def test_every_script_validates_the_app_against_the_registry():
 
 def test_the_database_name_comes_from_the_registry():
     # Not from the app's .env: a typo there would dump a database no generated
-    # file knows about, and the dump would look fine.
-    assert "database" in code(DEPLOY)
+    # file knows about, and the dump would look fine. Asserting that the word
+    # "database" appears somewhere proved none of that.
+    body = code(DEPLOY)
+    assert "apps.yml" in body
+    assert 'entry["database"]' in body, "the value must be read out of apps.yml"
+    assert "read -r DB " in body
+    dump_line = command_lines(DEPLOY, "pg_dump")[0]
+    assert '-d "${DB}"' in dump_line, dump_line
+    assert body.index('entry["database"]') < body.index('-d "${DB}"')
 
 
 def test_nothing_is_hard_coded_to_one_app():
@@ -170,7 +237,15 @@ def test_database_calls_clear_the_compose_project_name():
     # platform's compose file. Without this, compose looks for service `db` in
     # the app's project and reports it missing while it runs one container away.
     body = code(DEPLOY)
-    assert 'env -u COMPOSE_PROJECT_NAME docker compose -f "${PLATFORM_DIR}/docker-compose.prod.yml"' in body
+    expected = (
+        "env -u COMPOSE_PROJECT_NAME "
+        "-u POSTGRES_USER -u POSTGRES_PASSWORD -u POSTGRES_DB "
+        'docker compose -f "${PLATFORM_DIR}/docker-compose.prod.yml"'
+    )
+    # POSTGRES_* as well as the project name: this script sources the APP's
+    # .env with `set -a`, so leaving them exported interpolates the PLATFORM's
+    # compose file with one app's credentials.
+    assert expected in body
     for line in command_lines(DEPLOY, "exec -T db"):
         assert "DB_COMPOSE" in line, line
 
@@ -282,7 +357,11 @@ def test_health_probes_from_inside_the_container():
     body = code(HEALTH)
     assert "exec -T app" in body
     assert "cg1618.com" not in body
-    assert "hostname" not in body
+    # Narrowly: the probe must not read the app's public hostname out of the
+    # registry, nor go out over the network to reach it. The bare word trips
+    # on any future comment that merely says "hostname".
+    assert '["hostname"]' not in body
+    assert "https://" not in body
 
 
 def test_health_prints_the_logs_when_it_gives_up():
@@ -291,3 +370,126 @@ def test_health_prints_the_logs_when_it_gives_up():
     body = code(HEALTH)
     assert "logs --tail" in body
     assert "exit 1" in body
+
+
+# --- the hook's exit status is not this script's ----------------------------
+
+
+def test_the_hook_is_never_called_bare():
+    """A hook failure must not become the deploy's exit status.
+
+    `psql` exits 2 when its connection to the server goes bad, and a hook that
+    pipes psql under `pipefail` passes that straight out. Under `set -e` a bare
+    call then exits bin/deploy with 2 - which means "the deploy ran and is
+    unhealthy" - having pulled, built and started nothing. The workflow rolls
+    back, and a connection blip has manufactured an outage.
+
+    Every call therefore tests its own status: `if !`, or `|| freeze`.
+    """
+    for script in (DEPLOY, ROLLBACK):
+        for line in command_lines(script, '"${MIGRATIONS}"'):
+            if "MIGRATIONS}" not in line or line.strip().startswith("if [ "):
+                continue
+            guarded = line.strip().startswith("if ! ") or "|| freeze" in line
+            assert guarded, f"{script.name}: {line.strip()}"
+
+
+def test_a_failed_added_call_refuses_rather_than_reporting_nothing():
+    # "I could not tell" and "there were none" are opposite answers, and the
+    # second one deploys an unapproved migration (deploy) or swaps the image
+    # back under a migrated schema (rollback).
+    assert 'if ! incoming="$("${MIGRATIONS}" added HEAD origin/main)"' in code(DEPLOY)
+    assert 'if ! added="$("${MIGRATIONS}" added "${previous_rev}" HEAD)"' in code(ROLLBACK)
+    # The masking form is gone, not merely joined by the guarded one.
+    assert '" added "${previous_rev}" HEAD || true' not in code(ROLLBACK)
+
+
+def test_a_failed_current_call_refuses_and_clears_the_dump():
+    body = code(DEPLOY)
+    assert 'if ! "${MIGRATIONS}" current > "${dump}.migration"' in body
+    after = body[body.index('if ! "${MIGRATIONS}" current') :]
+    assert 'rm -f "${dump}"' in after.split("fi")[0]
+
+
+# --- the registry and the repository must agree -----------------------------
+
+
+def test_both_scripts_read_the_migrations_declaration_from_the_registry():
+    # Presence of the hook is an observation; whether the app HAS migrations is
+    # a declaration. Before the key existed, a hook that had lost its mode bit
+    # was indistinguishable from an app with no schema.
+    for script in (DEPLOY, ROLLBACK):
+        body = code(script)
+        assert '"migrations" not in' in body, script
+        assert 'HAS_MIGRATIONS' in body, script
+        assert '[ "${HAS_MIGRATIONS}" = "true" ]' in body, script
+
+
+def test_a_hook_that_is_not_an_executable_file_is_refused():
+    # -f as well as -x, because -x is true of a DIRECTORY: that passes the gate
+    # and exits 126 on the first call.
+    for script in (DEPLOY, ROLLBACK):
+        body = code(script)
+        assert (
+            '[ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] '
+            '|| [ ! -x "${MIGRATIONS}" ]; }'
+        ) in body, script
+
+
+def test_declaring_migrations_without_a_runnable_hook_is_refused():
+    body = code(DEPLOY)
+    assert '[ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]' in body
+    gate = body[body.index('[ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x') :]
+    assert "exit 1" in gate.split("fi")[0]
+    # rollback freezes rather than exiting, so the dump is named.
+    rb = code(ROLLBACK)
+    assert '[ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]' in rb
+    assert "freeze" in rb[rb.index('[ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x') :].split("fi")[0]
+
+
+def test_declaring_no_migrations_with_a_hook_present_is_refused():
+    # The mirror, and it is not symmetry for its own sake: the registry and the
+    # repository disagreeing is a thing a person settles, not a thing a script
+    # guesses at.
+    for script in (DEPLOY, ROLLBACK):
+        body = code(script)
+        assert '[ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]' in body, script
+    assert "exit 1" in code(DEPLOY)[
+        code(DEPLOY).index('[ "${HAS_MIGRATIONS}" != "true" ] && [ -e') :
+    ].split("fi")[0]
+    assert "freeze" in code(ROLLBACK)[
+        code(ROLLBACK).index('[ "${HAS_MIGRATIONS}" != "true" ] && [ -e') :
+    ].split("fi")[0]
+
+
+# --- what the hook is told --------------------------------------------------
+
+
+def test_platform_dir_is_exported_to_the_hook():
+    # The hook reaches back into the platform's compose project to read its own
+    # version table. This process is the only one that knows that path
+    # authoritatively; a hook left to guess ${HOME}/cg1618 is right until the
+    # checkout moves.
+    for script in (DEPLOY, ROLLBACK):
+        assert "export PLATFORM_DIR" in code(script), script
+
+
+# --- the arguments ----------------------------------------------------------
+
+
+def test_a_second_app_argument_is_refused():
+    # `deploy media food` deployed food, and read as a deploy of media.
+    for script in SCRIPTS:
+        body = code(script)
+        assert "unexpected argument" in body, script
+
+
+# --- rollback leaves nothing half-done --------------------------------------
+
+
+def test_the_image_swap_freezes_on_failure():
+    # A failure between the checkout and the tag leaves the app half-reverted,
+    # and the bare form exited 1 without naming the dump a person then needs.
+    for needle in ('git checkout --quiet "${previous_rev}"', "docker tag"):
+        for line in command_lines(ROLLBACK, needle):
+            assert "|| freeze" in line, line

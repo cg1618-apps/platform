@@ -22,6 +22,11 @@
 set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Exported, not merely set: the app's deploy/migrations hook reaches back
+# into the platform's compose project to read its own version table, and the
+# only process that authoritatively knows this path is this one. A hook left
+# to guess ${HOME}/cg1618 is right until the day the checkout moves.
+export PLATFORM_DIR
 
 APP=""
 CI_MODE=0
@@ -35,7 +40,14 @@ while [ "$#" -gt 0 ]; do
         --ci)      CI_MODE=1 ;;
         --app-dir) shift; APP_DIR="${1:?--app-dir needs a path}" ;;
         -*)        echo "unknown option: $1" >&2; exit 1 ;;
-        *)         APP="$1" ;;
+        # A second positional used to overwrite the first, so
+        # `deploy media food` deployed food while reading as a deploy of
+        # media. One app per run, named once.
+        *)         if [ -n "${APP}" ]; then
+                       echo "unexpected argument '$1'; ${APP} was already named." >&2
+                       exit 1
+                   fi
+                   APP="$1" ;;
     esac
     shift
 done
@@ -45,17 +57,24 @@ done
 # The registry is the source of truth for the database name, so a typo in an
 # app's .env cannot dump a database no generated file knows about - and the
 # dump would look perfectly fine.
-DB="$(python3 -c '
+#
+# It also answers whether the app HAS migrations, which is a declaration rather
+# than an observation - see the hook check below.
+registry="$(python3 -c '
 import sys, yaml
 name = sys.argv[1]
 apps = yaml.safe_load(open(sys.argv[2]))["apps"]
 match = [a for a in apps if a["name"] == name]
 if not match:
     sys.exit(f"{name} is not in apps.yml")
-if match[0]["database"] is None:
+entry = match[0]
+if entry["database"] is None:
     sys.exit(f"{name} declares no database")
-print(match[0]["database"])
+if "migrations" not in entry:
+    sys.exit(f"{name} does not declare migrations: in apps.yml")
+print(entry["database"], str(entry["migrations"]).lower())
 ' "${APP}" "${PLATFORM_DIR}/apps.yml")"
+read -r DB HAS_MIGRATIONS <<<"${registry}"
 
 # Apps are cloned beside the platform repository on a development machine and
 # are wherever they are on the box - the media tracker predates the layout and
@@ -82,19 +101,51 @@ COMPOSE=(docker compose -f docker-compose.prod.yml)
 # says "service db is not running" while the database runs perfectly well one
 # container away. Clearing it lets the platform's .env name its own project,
 # which keeps that name in one place.
-DB_COMPOSE=(env -u COMPOSE_PROJECT_NAME docker compose -f "${PLATFORM_DIR}/docker-compose.prod.yml")
+# POSTGRES_* are cleared for the same reason and by the same mechanism. This
+# script sources the APP's .env, so leaving them exported would interpolate
+# the platform's compose file with one app's credentials. Harmless for an
+# `exec`, wrong the first time that file grows a value that matters.
+DB_COMPOSE=(env -u COMPOSE_PROJECT_NAME -u POSTGRES_USER -u POSTGRES_PASSWORD -u POSTGRES_DB docker compose -f "${PLATFORM_DIR}/docker-compose.prod.yml")
 
 # Per app, because several apps now share this box and one app's prune must not
 # reach another's dumps.
 BACKUP_DIR="${BACKUP_DIR:-${HOME}/backups}/${APP}"
 KEEP=5
 
-# Migrations are the app's business, asked through a hook it either ships or
-# does not: `current`, `added <from> <to>`, `downgrade <target>`. An app with no
-# such file declares it has no migrations, and this script then skips the
-# sidecar and the approval gate. That is exactly right for an app whose schema
-# never changes.
+# Migrations are the app's business, asked through a hook: `current`,
+# `added <from> <to>`, `downgrade <target>`. Whether an app HAS migrations is
+# declared in apps.yml rather than inferred from the hook's presence, and an
+# app that declares none skips both the sidecar and the approval gate - which
+# is exactly right for an app whose schema never changes.
 MIGRATIONS="${APP_DIR}/deploy/migrations"
+
+# The registry says whether this app HAS migrations; the filesystem says
+# whether they can be run. Both must agree, and a disagreement is refused
+# rather than guessed at.
+#
+# Absence used to mean "no migrations", which made a hook that had lost its
+# mode bit indistinguishable from an app with no schema - and this repository
+# proves the bit gets lost. The result was an unapproved migration deploying
+# itself with nothing to roll back to.
+#
+# -f as well as -x, because -x is true of a DIRECTORY: that passes the gate and
+# then exits 126 on the first call.
+if [ -e "${MIGRATIONS}" ] && { [ ! -f "${MIGRATIONS}" ] || [ ! -x "${MIGRATIONS}" ]; }; then
+    echo "${MIGRATIONS} exists but is not an executable file. Refusing." >&2
+    exit 1
+fi
+if [ "${HAS_MIGRATIONS}" = "true" ] && [ ! -x "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has migrations, but ${MIGRATIONS} is not" >&2
+    echo "there to run. Deploying now would skip the approval gate and record" >&2
+    echo "no downgrade target. Refusing." >&2
+    exit 1
+fi
+if [ "${HAS_MIGRATIONS}" != "true" ] && [ -e "${MIGRATIONS}" ]; then
+    echo "apps.yml declares ${APP} has no migrations, yet ${MIGRATIONS} exists." >&2
+    echo "The registry and the repository disagree. A person settles that, not" >&2
+    echo "this script. Refusing." >&2
+    exit 1
+fi
 
 if [ ! -f .env ]; then
     echo "No .env in $(pwd). The app's deploy documentation has the template." >&2
@@ -138,8 +189,17 @@ if [ "${CI_MODE}" -eq 1 ]; then
     # re-check against this box's own HEAD, which is the only revision that is
     # actually true about this machine. A migration reaching production
     # unapproved is the one failure this pipeline must not have.
-    if [ -x "${MIGRATIONS}" ]; then
-        incoming="$("${MIGRATIONS}" added HEAD origin/main)"
+    if [ "${HAS_MIGRATIONS}" = "true" ]; then
+        # Not bare, and this is the difference between a blip and an outage.
+        # Under `set -e` the hook's own exit status becomes this script's, and
+        # psql exits 2 when its connection to the server goes bad - so a
+        # database that is merely down would exit 2 here with nothing pulled,
+        # built or started. Exit 2 means "the deploy ran and is unhealthy", so
+        # the workflow would then roll back a deploy that never happened.
+        if ! incoming="$("${MIGRATIONS}" added HEAD origin/main)"; then
+            echo "deploy/migrations added failed; cannot tell what this deploy adds. Refusing." >&2
+            exit 1
+        fi
         if [ -n "${incoming}" ] && [ "${MIGRATION_APPROVED:-0}" != "1" ]; then
             echo "Incoming commits add migrations:" >&2
             echo "${incoming}" >&2
@@ -176,14 +236,22 @@ fi
 git rev-parse HEAD > "${dump}.revision"
 echo "    dump belongs to $(cat "${dump}.revision")"
 
-if [ -x "${MIGRATIONS}" ]; then
+if [ "${HAS_MIGRATIONS}" = "true" ]; then
     # The SCHEMA revision this dump belongs to, which is what bin/rollback
     # passes back to the hook. Recorded here, from the database, rather than
     # derived later: a git sha is not a migration id and the two share no
     # namespace, and asking an image for its head answers what that image KNOWS
     # rather than what the schema WAS - which diverge exactly when a rollback is
     # happening.
-    "${MIGRATIONS}" current > "${dump}.migration"
+    #
+    # Same reasoning as the `added` call above: the hook's exit status must not
+    # become this script's. A failure here is a refusal, not an unhealthy
+    # deploy.
+    if ! "${MIGRATIONS}" current > "${dump}.migration"; then
+        echo "deploy/migrations current failed. Refusing to deploy." >&2
+        rm -f "${dump}" "${dump}.revision" "${dump}.migration"
+        exit 1
+    fi
 
     # Same reasoning as the empty-dump guard above: a missing downgrade target
     # looks like a rollback option right up until tier 2 needs it.
@@ -194,7 +262,7 @@ if [ -x "${MIGRATIONS}" ]; then
     fi
     echo "    schema was at $(cat "${dump}.migration")"
 else
-    echo "    ${APP} ships no deploy/migrations - no migrations to record."
+    echo "    ${APP} declares no migrations in apps.yml - none to record."
 fi
 
 echo "==> Tagging the outgoing image as ${APP}-app:previous"
@@ -206,6 +274,12 @@ fi
 
 echo "==> Pulling"
 git pull --ff-only
+
+# The pull is exactly where "ran" begins, so every failure after it is an exit
+# 2 rather than an exit 1. `compose up -d --build` migrates the database on
+# start; reporting that as "refused to start, do not roll back" would leave a
+# migrated schema under the old image with the workflow told not to act.
+trap 'exit 2' ERR
 
 echo "==> Building and starting"
 "${COMPOSE[@]}" up -d --build

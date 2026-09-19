@@ -52,3 +52,48 @@ What is left to do, in the order it has to happen:
 
 The registry change is the platform's and must be ready before food's first
 write endpoint reaches `main`.
+
+## Three apps have no `docs/` shaped like `media/docs/`
+
+`CLAUDE.md`'s "House style" section requires every feature, rule and behaviour
+to be documented as Markdown in that app's `docs/`, shaped like `media/docs/`,
+landing in the same commit as the behaviour change. That rule landed in #48 and
+is right. It also declares three apps short the moment it was written:
+
+| App | Markdown pages under `docs/` |
+| --- | --- |
+| `media` | 34 |
+| `travel` | 4 (`README.md`, `notes/`, and live `superpowers/` scaffolding) |
+| `food` | 2 (`README.md`, `notes/`) |
+| `art` | 2 (`README.md`, `notes/`) |
+
+**This is mostly not a backlog of unwritten pages.** `food`, `travel` and `art`
+have almost no behaviour yet, and a page describing features that do not exist
+is worse than no page — it is the abandoned-spec problem, written in the
+present tense. Most of what `media/docs/` holds has nothing to describe in the
+other three.
+
+What is actually open is narrower, and it is a timing question:
+
+- The three apps have no `docs/` **skeleton** to land a page into, so the first
+  feature that ships has to invent the file name and the layout under time
+  pressure, which is how four apps end up with four different documentation
+  shapes — the exact divergence "House style" exists to prevent.
+- `travel` is the live case and it is live **now**: the packing-lists work is
+  nine tasks, and under the rule its documentation lands in the same commits,
+  not afterwards. `travel/docs/` currently has nowhere obvious to put it.
+- `food` is the cheapest case, being still at the skeleton, and is the one to
+  get right first because nothing has to be retrofitted.
+
+The decision nobody has made: whether an app creates its `docs/` pages
+**empty-but-named** up front, mirroring `media/docs/`, or creates each page
+with the first feature that needs it. Naming them up front makes the shape
+obvious and the landing place unambiguous; it also produces a set of stub
+files asserting nothing, which is its own kind of lie. Creating them on demand
+avoids the stubs and risks the divergence.
+
+Not urgent for `food` and `art`. It is urgent for `travel` only in the sense
+that its first nine commits will establish a precedent either way, and a
+precedent set by accident is the thing "House style" was written against.
+
+Raised by the session that wrote #48, against its own change.

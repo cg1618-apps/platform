@@ -42,16 +42,35 @@ What is left to do, in the order it has to happen:
   this and is building it in the same pull request as its first write
   endpoint, not before: the prefix string is still an open design question
   there, and committing it now would enshrine a value nobody has chosen.
-- `schema/apps.schema.json` gains an optional `gated_paths` array of strings.
-- `bin/deploy` refuses when the registry's `gated_paths` and the app's
-  `deploy/gated-paths` disagree, in both directions, reading the app's file
-  from the commit rather than the working tree.
-- `bin/check-exposure` probes each declared path for the Access redirect the
-  way it already probes the root, and its refusal tests are written against a
-  fixture that makes refusal possible.
+- ~~The platform half~~ — **built**. `gated_paths` is in the schema,
+  `bin/validate_apps.py` refuses it on a non-`public` app and on `/`,
+  `bin/deploy` refuses when the registry and the app's `deploy/gated-paths`
+  disagree in either direction, and `bin/check-exposure` probes each declared
+  path for the Access redirect.
 
-The registry change is the platform's and must be ready before food's first
-write endpoint reaches `main`.
+**What is left is not code. There is no Cloudflare Access application covering
+`food.cg1618.com/api/edit`.**
+
+`food` shipped `deploy/gated-paths` containing `/api/edit` and enforces it in
+its own CI. `apps.yml` deliberately does **not** declare it yet, and the order
+matters:
+
+1. Create the Access application covering `food.cg1618.com/api/edit`. This is
+   dashboard work and it is the only step that makes the gate real.
+2. Then add `gated_paths: ["/api/edit"]` to food's `apps.yml` entry.
+
+Declaring it first was tried and reverted. With the declaration in place and no
+Access application, `bin/check-exposure` correctly fails — it was measured, not
+predicted: `food: /api/edit IS DECLARED GATED BUT ANSWERS 404 UNGATED`, exit 2.
+That would block **every** food deploy, including ones carrying no write routes
+at all, to protect a prefix that does not yet exist on `main`. A gate that
+refuses deploys for a surface nobody serves is a speed bump.
+
+Leaving the registry silent does not lose the protection, because `bin/deploy`
+refuses the moment the app ships `deploy/gated-paths` and the registry does not
+declare it. That refusal fires exactly when food's writes reach `main`, which
+is exactly when the Access application has to exist. The enforcement is in the
+ordering rather than in an early declaration.
 
 ## Three apps have no `docs/` shaped like `media/docs/`
 

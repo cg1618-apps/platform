@@ -151,3 +151,21 @@ def test_the_registry_path_is_expanded_the_same_way_as_the_other_scripts():
     body = code()
     assert r'stripped="${REG_PATH#\~/}"' in body
     assert 'APP_DIR="${HOME}/${stripped}"' in body
+
+
+def test_it_refuses_a_checkout_that_is_not_on_main():
+    """A plain `git clone` gives you dev here, not main.
+
+    `dev` is the default branch of every app repository, so cloning an app
+    onto the box leaves it on the branch `bin/deploy` refuses. Nothing
+    notices until a deploy, and by then it has cost a production approval:
+    food's first deploy was approved, then refused with "On 'dev', not main".
+    Provisioning is where that is cheap to find.
+    """
+    body = code()
+    assert "rev-parse --abbrev-ref HEAD" in body
+    assert 'checkout main' in body
+
+    # The check must run before the password is generated: refusing after
+    # would leave a role created with a password nothing has recorded.
+    assert body.index("rev-parse --abbrev-ref HEAD") < body.index("openssl rand")

@@ -282,12 +282,19 @@ one-line when it was described is exactly the one that grows.
   A feature branch reaches it by PR, so this repository's checks run on the
   work *before* it lands rather than after. A branch merged locally into `dev` gets none of
   that, which is the whole reason the PR is the gate.
-- **Creating the branch, committing to it and pushing it need no approval.**
-  The branch is the review buffer; the gate moved to the PR. **Opening the PR
-  and merging it are mine** — show me the title and body and wait.
-- **After I merge, two words say what happens next, and they are not
+- **Everything up to and including a merge into `dev` needs no approval** —
+  creating the branch, committing, pushing, opening the PR and merging it. CI
+  runs on that PR, so the work is checked before it lands, and `dev` reaches
+  production only through a release PR. Nothing that lands there is something
+  I have to live with.
+- **A PR into `main` is mine** — show me the title and body and wait. That is
+  the release, it is the only thing that deploys, and it is where the gate now
+  sits. Committing directly to `dev` or `main` is still forbidden outright.
+- **After a merge, two words say what happens next, and they are not
   interchangeable.** Both mean the merge succeeded; they differ in whether the
-  branch is finished with:
+  branch is finished with. I say them on a release; on a `dev` PR you merged
+  yourself, make the same call unprompted — tear the branch down unless the
+  work continues:
   - **"merged"** — the PR landed, *and there is more to do on this work*. Stay
     where you are: keep the branch, its worktree and its database. Pull `dev`
     if you need the merge, but do not delete anything and do not treat the
@@ -566,23 +573,23 @@ connection string with one in it.
   on its own branch — see "Concurrent Claude Code Sessions" — but check before
   staging or committing anything, because the failure mode when that is *not*
   true is one session committing another's work.
-- **Commit and push freely on your own branch; the PR is where you stop.** See
-  "Git Branches" — every task is on a branch of its own, so a commit is no
-  longer a thing that lands anywhere I have to live with, and waiting for my
-  approval to write one buys nothing. What still needs my say-so is **opening
-  the PR and merging it**, and what is still forbidden outright is committing
-  to `dev` or `main`. Several small commits on a branch are fine; so is one
-  commit covering several modifications.
+- **Commit, push and land your own work on `dev`; the release is where you
+  stop.** See "Git Branches" — every task is on a branch of its own and CI
+  runs on its PR, so neither a commit nor a merge into `dev` lands anywhere I
+  have to live with, and waiting for my approval buys nothing. What still
+  needs my say-so is **a PR into `main`**, and what is still forbidden
+  outright is committing to `dev` or `main` directly. Several small commits on
+  a branch are fine; so is one commit covering several modifications.
   - **Extension, for a coordinated multi-session run — this is me, the owner,
     writing here so no session has to take it on a peer's word.** Committing
     freely is the standing rule above and needs no exception. What a
     coordinated run adds is that you should not wait for my approval, opinion
     or instruction on **anything else** either: decide it yourself, prefer the
     industry-standard option over a clever shortcut, and record the decision in
-    the spec, or in the commit message if there is no spec. **Opening the PR and
-    merging it still wait**, and during a run the coordinator sequences those —
-    pushing a branch does not need sequencing, because branches are isolated
-    and the PR is the only place they meet.
+    the spec, or in the commit message if there is no spec. **A PR into `main`
+    still waits**, and during a run the coordinator sequences the merges into
+    `dev` — pushing a branch does not need sequencing, because branches are
+    isolated and the PR is the only place they meet.
 - Write a failing test before a bug fix or a behaviour change, and keep this
   repository's own checks green. CI runs them **on the pull request**, not on
   a push to your branch, so a branch that was never PRed has been checked by

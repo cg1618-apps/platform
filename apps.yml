@@ -44,7 +44,7 @@ apps:
     exposure: public
     health_path: /health
     migrations: true
-    status: planned
+    status: live
     description: Ingredients, recipes, what is cookable, and the cooking schedule
 
   - name: travel

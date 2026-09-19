@@ -45,6 +45,33 @@ contract in `docs/registry.md` exists to keep honest — and `art`'s stopwatch i
 the feature most likely to want a different shape from the rest, so it is the
 one to decide deliberately rather than by inheritance.
 
+## Subagents
+
+**Use them by default.** A task that can be described completely in writing and
+checked when it comes back should go to a subagent: executing one task of a
+plan, a search across several directories, a self-contained implementation, a
+review pass. It is faster, and it keeps the main session's context for the
+judgement that actually needs it rather than filling it with file dumps.
+
+Dispatch several at once when the tasks are genuinely independent — different
+files, no shared state, no ordering between them.
+
+**What stays in the main session:**
+
+- **Anything needing the owner.** A subagent cannot ask a question. If a task
+  might turn on a decision only the owner can make, either settle it first or
+  tell the agent to stop and report rather than choose.
+- **Opening and merging pull requests.** That gate is the owner's, and it is
+  not delegable to something that cannot read their reply.
+- **Anything depending on this conversation.** A subagent starts blank: it gets
+  the prompt and the repository, nothing else. Work that only makes sense given
+  the last hour of discussion has to carry that context in the prompt, or it
+  has to stay here.
+
+**Review what comes back before dispatching the next one.** The failure mode is
+not a subagent doing the wrong thing loudly; it is three of them doing subtly
+different things and the differences only showing up two tasks later.
+
 ## Two Development Machines (company / home)
 
 Work is developed on two machines — **company** and **home** — and is often

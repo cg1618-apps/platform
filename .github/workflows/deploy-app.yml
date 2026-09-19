@@ -250,6 +250,26 @@ jobs:
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
           exit "${rc}"
 
+      # After the deploy, not before: the question is what the world can now
+      # reach. It runs only when the deploy succeeded, because an exposure
+      # answer about a half-deployed app means nothing.
+      #
+      # A failure here fails the JOB but must never roll anything back. The
+      # rollback below is gated on the deploy step's own rc, so a mismatch
+      # here goes red and leaves production alone - which is right: an app
+      # whose Access policy is missing is not fixed by reverting its code.
+      #
+      # This exists because apps.yml only ever stated intent. art.cg1618.com
+      # served an unauthenticated 200 for twenty minutes while the registry
+      # called it cloudflare-access.
+      - name: The exposure must match the registry
+        if: success()
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          ./bin/check-exposure "${APP}"
+
       # Exit 2 only: the deploy RAN and the result is unhealthy, so the
       # database may have been migrated and the previous image is the way
       # back. Exit 1 is a refusal to start - wrong branch, no .env, an
@@ -377,6 +397,26 @@ jobs:
           ./bin/deploy "${APP}" --ci || rc=$?
           echo "rc=${rc}" >> "$GITHUB_OUTPUT"
           exit "${rc}"
+
+      # After the deploy, not before: the question is what the world can now
+      # reach. It runs only when the deploy succeeded, because an exposure
+      # answer about a half-deployed app means nothing.
+      #
+      # A failure here fails the JOB but must never roll anything back. The
+      # rollback below is gated on the deploy step's own rc, so a mismatch
+      # here goes red and leaves production alone - which is right: an app
+      # whose Access policy is missing is not fixed by reverting its code.
+      #
+      # This exists because apps.yml only ever stated intent. art.cg1618.com
+      # served an unauthenticated 200 for twenty minutes while the registry
+      # called it cloudflare-access.
+      - name: The exposure must match the registry
+        if: success()
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          cd "${PLATFORM_DIR:-$HOME/cg1618}"
+          ./bin/check-exposure "${APP}"
 
       # Exit 2 only, for the same reason as the ungated job - and it matters
       # more here, because this is the lane where a migration has run and

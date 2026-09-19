@@ -234,3 +234,52 @@ not match it. A check keyed on status would move under that transition; one
 keyed on the redirect does not notice it at all.
 
 Small to build, and it belongs in the same loop that probes the prefixes.
+
+## `docker compose down` in any media tree destroys the shared database container
+
+On 2026-09-19 the shared PostgreSQL container vanished from the home machine
+and was reported as unexplained. It was not unexplained, and it was not a
+crash. `docker events` holds the sequence:
+
+```
+22:37:03  kill → stop → die → destroy   anime_site_postgres_db
+22:37:03  unmount                       anime_site_postgres_anime_data
+22:38:47  create → start                anime_site_postgres_db
+22:38:47  mount                         anime_site_postgres_anime_data
+```
+
+`kill`, `stop`, `die`, `destroy` in one second, with the volume **unmounted
+rather than removed**, is the signature of `docker compose down` (or
+`docker rm -f`). A crash gives `die` alone and leaves the container in
+`docker ps -a`. The 104-second gap is the recovery, and no data was lost
+because `down` without `-v` never touches the named volume.
+
+**The trap is that the rule protecting the data creates this.** "Git Worktrees"
+in `CLAUDE.md` says to pin `COMPOSE_PROJECT_NAME` to the same value the main
+tree uses, so a worktree mounts the real volume instead of silently creating an
+empty one. That is correct and it must stay. Its consequence is that **every
+media worktree is in the same compose project**, so `docker compose down` in
+any of them removes the container every other tree and every other app is
+using. The project name is what makes the volume shared; it is equally what
+makes the container shared.
+
+`media/docker-compose.yml` also pins `container_name: anime_site_postgres_db`,
+so the name is global regardless of project — which turns the other direction
+of this mistake into a loud "container name already in use" rather than a
+second database.
+
+Nothing enforces this. What would:
+
+- **A rule, which costs nothing:** in a tree that shares the project name, stop
+  the database with `docker compose stop db`, never `down`. `stop` leaves the
+  container to be started again; `down` removes it for everybody.
+- **On the box this is worse and the same command does it.** `~/cg1618` runs
+  the shared PostgreSQL and the tunnel for all four apps, and a `down` there
+  takes production's database out from under every one of them, with nobody
+  sitting in front of it. `bin/deploy` does not do this, and no script should
+  gain it without a deliberate decision.
+
+Not urgent on a development machine, where the recovery is one `up -d` and the
+volume survives. Recorded because the same keystroke on the box has a different
+blast radius, and because the reason it is easy to get wrong is a rule this
+repository correctly insists on.

@@ -22,7 +22,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "apps.yml"
-OUTPUT = ROOT / "apex" / "index.html"
+OUTPUT = ROOT / "apex" / "html" / "index.html"
 
 TEMPLATE = """<!DOCTYPE html>
 <!-- GENERATED FROM apps.yml BY bin/generate_apex.py - DO NOT EDIT. -->
@@ -119,7 +119,7 @@ PLANNED = """    <li><div class="planned">
 
 
 def render(registry: dict) -> str:
-    """Return the full contents of apex/index.html."""
+    """Return the full contents of apex/html/index.html."""
     items = []
     for app in registry["apps"]:
         fields = {

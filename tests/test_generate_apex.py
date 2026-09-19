@@ -31,7 +31,7 @@ def app(**overrides):
 
 
 def test_the_committed_page_matches_the_registry():
-    committed = (ROOT / "apex" / "index.html").read_text(encoding="utf-8")
+    committed = (ROOT / "apex" / "html" / "index.html").read_text(encoding="utf-8")
     assert committed == render(REGISTRY)
 
 

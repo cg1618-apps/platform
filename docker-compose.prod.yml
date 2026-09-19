@@ -47,7 +47,11 @@ services:
     volumes:
       # Generated from apps.yml by bin/generate_ingress.py; CI fails if the
       # committed file and the registry disagree.
-      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      # The directory, not the file - see the apex service below for why a
+      # single-file mount serves stale content after a git pull. The
+      # credentials mount nests inside this one, which docker resolves by
+      # depth, so it still lands on top.
+      - ./cloudflared:/etc/cloudflared:ro
       - ${CLOUDFLARED_CREDENTIALS}:/etc/cloudflared/credentials.json:ro
     networks:
       - cg1618
@@ -64,8 +68,15 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     volumes:
-      - ./apex/index.html:/usr/share/nginx/html/index.html:ro
-      - ./apex/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Directories, not single files. A file bind mount pins the INODE, and
+      # `git pull` replaces the file rather than writing through it - so the
+      # container keeps serving the old content while the file on disk is
+      # correct, with nothing on either side saying so. That happened the day
+      # travel went live: the page on disk linked to it and the page being
+      # served still said "planned". Mounting the directory re-resolves the
+      # name on every open.
+      - ./apex/html:/usr/share/nginx/html:ro
+      - ./apex/conf:/etc/nginx/conf.d:ro
     networks:
       cg1618:
         aliases:

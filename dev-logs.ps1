@@ -147,7 +147,9 @@ catch {
 
 Write-Host ''
 Write-Host "==> Grafana:  $grafanaUrl" -ForegroundColor Green
-Write-Host '    login:    admin / admin  (local only; production refuses to start without a real one)' -ForegroundColor DarkGray
+Write-Host '    No login. Anonymous access is on for the local stack, so the page' -ForegroundColor DarkGray
+Write-Host '    opens straight into Grafana. Sign in as admin / admin only if you' -ForegroundColor DarkGray
+Write-Host '    want to be a real user; production has neither of those.' -ForegroundColor DarkGray
 Write-Host '    Loki is provisioned as the default datasource - go to Explore.' -ForegroundColor DarkGray
 Write-Host ''
 if ($containers.Count -gt 0) {
@@ -162,6 +164,6 @@ Write-Host ''
 Write-Host '    Your four apps are NOT here: in development they run as uvicorn' -ForegroundColor DarkGray
 Write-Host '    processes, not containers. See "Viewing it locally" in docs/logging.md.' -ForegroundColor DarkGray
 Write-Host ''
-Write-Host '    Stop with:  .\dev-logs.ps1 -Down' -ForegroundColor DarkGray
+Write-Host '    Stop with:  .\dev.cmd -Down    (or .\dev-logs.ps1 -Down)' -ForegroundColor DarkGray
 
 Start-Process $grafanaUrl

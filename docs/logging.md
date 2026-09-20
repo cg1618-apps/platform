@@ -205,7 +205,9 @@ query about it. What has not happened is the last step:
 nothing to it.
 
 Until it is live, production output is `docker logs` over SSH, per container,
-from the manager session — and nothing survives a deploy.
+from the manager session — and nothing survives a deploy. The stack itself runs
+on a development machine today and is worth exploring there first; see
+[Viewing it locally](#viewing-it-locally) below.
 
 Three things stand between here and live, and each is the owner's:
 
@@ -257,6 +259,73 @@ anything not in a container. Relabelling the container to match would break
 the `<name>-app` network alias the generated ingress routes to, and the
 hostname would answer 502 while both files still read correctly on their own.
 Query by the label; read `app` off a line that arrived without one.
+
+## Viewing it locally
+
+```powershell
+.\dev-logs.ps1              # start, wait for both, open Grafana
+.\dev-logs.ps1 -Down        # stop; local history is kept
+.\dev-logs.ps1 -Clean       # stop and discard the local volumes too
+```
+
+Grafana is on **http://127.0.0.1:8008/**, `admin` / `admin`, with Loki already
+provisioned as the default datasource — go to **Explore**. Loki's own API is on
+`127.0.0.1:3100` if you would rather `curl` it.
+
+`docker-compose.dev-logs.yml` runs Loki, Alloy and Grafana and **nothing else**.
+It is a separate file rather than a profile on the production one because two of
+those other services must never start on a laptop:
+
+- **`cloudflared` would connect a second tunnel with the box's credentials.**
+  Cloudflare load-balances a tunnel's connections across its replicas, so a
+  share of real production traffic would begin arriving at the laptop and be
+  answered by whatever it happened to be serving. Nothing announces it; both
+  containers look healthy.
+- **`db` would bind 5432** against `anime_site_postgres_db`, which every app's
+  `dev.ps1` starts and every app's tests use.
+
+`tests/test_dev_logs.py` asserts both absences, that the project name is pinned
+to `cg1618-dev-logs` so a `docker compose -f docker-compose.prod.yml down` in
+this directory cannot delete the local stack, that nothing is published beyond
+loopback, and that the Loki, Alloy and Grafana configs mounted are **the same
+files the box runs** rather than a second copy that would drift.
+
+### What it will not show you, and why
+
+**Your four applications are not in it.** Alloy discovers containers through the
+docker socket, and in development the apps run as uvicorn processes started by
+`dev.ps1` — not containers. There is nothing of theirs for Alloy to tail.
+
+**And there would be nothing structured to look at if there were.** The contract
+above selects the plain human format whenever `is_development` is true, which is
+the right call: a terminal is better at reading a sentence than Grafana is, and
+`jq` on your own dev output is a chore nobody should have. Structured logging
+earns its keep in production, across four apps, behind one tunnel.
+
+So locally you get every *container* on the machine — the shared PostgreSQL,
+and the collector's own three, which is enough to learn LogQL and confirm the
+stack works end to end.
+
+### If you do want real application lines locally
+
+Run one app the way production runs it, in its own container, which makes it
+visible to Alloy and puts it in production format:
+
+```powershell
+cd food
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+That needs the app's `.env` and the `cg1618` network, and it is a rehearsal of
+the deploy rather than a way to develop. It is worth doing once, before the
+collector goes live on the box, to see what the real stream looks like.
+
+### Reading production
+
+Not yet possible. `logs.cg1618.com` is `status: planned`, so the tunnel routes
+nothing to it, and the three steps that change that are in
+[open-items.md](open-items.md). Until then production output is `docker logs`
+over SSH, per container, and nothing survives a deploy.
 
 ## Who conforms today
 

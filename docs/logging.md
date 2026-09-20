@@ -45,6 +45,17 @@ no multi-line records.
 An app may add fields — `media` adds `stack_info`. It may not rename or drop
 these.
 
+**`request_id` is omitted outside a request, not written as `null`.** Every
+startup line, every migration and every background task would otherwise carry
+a null field into the collector's index for nothing. This is a contract-level
+choice rather than each app's, because it decides what a query can assume:
+`request_id` present means "this happened inside a request", and that is only
+true if nobody writes the key when it does not apply.
+
+`exc_info` and `stack_info` are named after `logging`'s own keyword arguments
+rather than invented as `traceback` and `stack`, so a reader who knows Python
+already knows what they hold and where they came from.
+
 `+00:00` rather than `Z` because that is what `datetime.isoformat()` produces
 and there is no reason to post-process it. They denote the same instant and a
 reader of the aggregated stream should not have to notice which an app chose,
@@ -97,6 +108,45 @@ once from its own handler and once from root's.
 
 An app on something other than uvicorn has the same obligation about whatever
 its server logs through. The rule is that **one process emits one format**.
+
+**Land the JSON formatter and the uvicorn takeover in the same commit.** They
+are two edits to one file and it is tempting to do them in sequence. The window
+between them is precisely the mixed stream described above — and it is
+invisible in `docker logs`, so a commit that opens it looks like a commit that
+worked. `food` is the app this is waiting to happen to: it is plain text
+everywhere today, which is consistent and fine, and it becomes a mixed stream
+the moment it gains a JSON formatter without the takeover.
+
+## `%s` arguments, never f-strings
+
+```python
+logger.info("pulled %s entries for %s", count, username)   # yes
+logger.info(f"pulled {count} entries for {username}")      # no
+```
+
+This is in the contract rather than in four style guides because the reason is
+mechanical rather than taste. An f-string renders at the call site, so by the
+time `logging` sees the record there is one opaque string: `record.msg` holds
+the finished sentence and `record.args` is empty.
+
+What that costs:
+
+- **The template stops being a grouping key.** With `%s`, ten thousand requests
+  share one `record.msg`, so the collector can count and group them as one kind
+  of event. With an f-string every line is a distinct string and there is
+  nothing to group by but substring matching.
+- **The arguments cannot ever become fields.** No app emits them as fields
+  today — every formatter here calls `record.getMessage()`, which renders the
+  same result either way — but `%s` leaves `record.args` populated, so that is
+  a formatter change later rather than a rewrite of every call site. With
+  f-strings the information is destroyed at the call site and no later change
+  can recover it.
+- **Formatting happens only if the line is emitted**, so a `DEBUG` call in a
+  hot path costs nothing at `INFO`.
+
+`media` converted 85 call sites and asserts it with an AST scan over `app/`,
+with a mirror test proving the detector fires on a known-bad module — a scan
+that finds nothing passes whether or not it works.
 
 ## Request IDs
 

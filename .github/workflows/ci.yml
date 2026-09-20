@@ -196,6 +196,17 @@ jobs:
           done
           echo "${labels}" | grep -q '"container"'
 
+      - name: What the observability containers said
+        if: always()
+        run: |
+          docker compose -f docker-compose.prod.yml ps || true
+          for c in loki alloy grafana; do
+            echo "::group::${c}"
+            docker compose -f docker-compose.prod.yml logs --no-color "${c}" || true
+            docker inspect -f '{{json .State.Health}}' "cg1618-${c}-1" || true
+            echo "::endgroup::"
+          done
+
       - name: Tear the stack down
         if: always()
         run: |

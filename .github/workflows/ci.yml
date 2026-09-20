@@ -105,9 +105,14 @@ jobs:
           POSTGRES_DB=ci
           TUNNEL_ID=00000000-0000-0000-0000-000000000000
           CLOUDFLARED_CREDENTIALS=${GITHUB_WORKSPACE}/.ci-credentials.json
-          # Grafana's compose entry uses `:?`, so an absent value fails the
-          # whole `compose up` rather than falling back to admin/admin. That
-          # refusal is deliberate, which means CI has to supply one.
+          # Grafana interpolates this with :? in the compose file, so an
+          # absent value fails the whole compose up rather than falling back
+          # to admin/admin. That refusal is deliberate, which means CI has to
+          # supply a value.
+          #
+          # No backticks anywhere in this heredoc: it is unquoted, so the
+          # shell runs command substitution inside it, and a backtick in a
+          # COMMENT is still a command.
           GRAFANA_ADMIN_PASSWORD=ci
           EOF
 

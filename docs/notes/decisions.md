@@ -145,6 +145,51 @@ is cheaper, and it reproduces exactly the gap `bin/check-exposure` was written
 to close — a gate asserted in a dashboard this repository cannot see, with
 nothing connecting the claim to the reality.
 
+## Apps emit streams; the box aggregates
+
+The question was whether to build a log system per app and integrate them, and
+whether production console output should be viewable at all. The answer is no
+per-app log system and no bespoke integrated one: **an application's logging
+obligation ends at stdout**, and one collector on the box aggregates every
+container's stream.
+
+The alternative — each app owning a log viewer, and something later joining
+them up — was rejected for the reason the polyrepo was chosen in the first
+place. The apps share a box, a database server and a tunnel; those are the
+platform's, and so is this. Four log viewers would be four implementations of
+one thing, diverging the way four of anything here diverges, and the
+integration would still have to be written afterwards against four shapes
+instead of one.
+
+It also puts the work where the leverage is. An app's half is a `dictConfig`
+and a middleware — hours, once, and then never thought about again. The
+platform's half is one collector that gains every app the day it is switched
+on, including the two apps nobody is currently working in.
+
+**Loki rather than ELK.** Both are free and self-hostable, and Elasticsearch
+would eat a mini PC on its own. Loki indexes labels rather than full text,
+which is the right trade for a box where the question is almost always "what
+did this container do around this time" rather than "find this word anywhere in
+a year". Grafana Alloy tails the docker socket and labels streams by container;
+Grafana reads Loki. All three are Grafana Labs OSS — Loki and Grafana AGPLv3,
+Alloy Apache 2.0 — with no Grafana Cloud or Enterprise involved.
+
+Resources were the only real objection, and they were measured rather than
+estimated before committing: on 2026-09-20 the box had 14.0 GB of 15.2 GB RAM
+available and 80 GB of 98 GB disk free, with all seven containers together
+under 550 MB. The stack's expected 400-500 MB is about 3.5% of memory. Dozzle
+— one container, live tail, stores nothing — was the fallback had the box been
+tight, and it is not the same product: it has no history, and history is half
+the point. It was not needed.
+
+**Audit trails are explicitly not this.** "Who changed this entry", "Pull All
+rewrote 312 rows" — that is domain data about a user's own records, it belongs
+in the app's own PostgreSQL and its own UI, and it is queried by a person
+asking a question about their data rather than by someone working out why the
+box is behaving strangely. Conflating the two produces a log system that is
+also a weak database, and an audit trail that disappears on a container
+recreate. The contract is in [../logging.md](../logging.md).
+
 ## `media` is the reference because it is read, not because it is right
 
 "House style" names `media` the reference implementation the other three copy

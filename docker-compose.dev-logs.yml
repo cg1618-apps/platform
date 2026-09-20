@@ -1,0 +1,112 @@
+# The log collector, on a development machine. NOT the box.
+#
+#   .\dev-logs.ps1            start, and open Grafana
+#   .\dev-logs.ps1 -Down      stop and remove
+#
+# Three services and no more. docker-compose.prod.yml also runs `db`,
+# `cloudflared` and `apex`, and none of those may start here:
+#
+#   - `cloudflared` would connect a SECOND tunnel with the box's credentials.
+#     Cloudflare load-balances a tunnel's connections across its replicas, so
+#     production traffic would start arriving at this laptop and be answered by
+#     whatever is running on it. That is the reason this file exists rather
+#     than a `--profile` on the production one, and tests/test_dev_logs.py
+#     asserts neither service is here.
+#   - `db` would bind 5432 against anime_site_postgres_db, which every app's
+#     dev.ps1 starts and every app's tests use.
+#
+# What this CANNOT show you is your own apps. Alloy reads the docker socket, and
+# in development the four apps run as uvicorn processes rather than containers -
+# so nothing of theirs is here to tail. See "Viewing it locally" in
+# docs/logging.md for what that leaves, and how to get real application lines if
+# you want them.
+
+# Pinned, and this is the important line in the file.
+#
+# Compose derives a project name from the DIRECTORY, so without this both this
+# file and docker-compose.prod.yml would be the project `cg1618`. Bringing the
+# production file up locally would then adopt these three containers as its
+# own and recreate them, and - much worse - a `docker compose -f
+# docker-compose.prod.yml down` would delete them, because compose removes
+# everything in the project rather than only the services in the file it was
+# handed. Distinct names make the two projects genuinely separate.
+name: cg1618-dev-logs
+
+x-logging: &log_rotation
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  loki:
+    image: grafana/loki:3
+    restart: unless-stopped
+    logging: *log_rotation
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      # The SAME config the box runs. Two copies would drift, and the one that
+      # drifted would be the one nobody reads until a query behaves differently
+      # in production.
+      - ./observability/loki:/etc/loki:ro
+      - dev_loki_data:/loki
+    ports:
+      # 127.0.0.1, not 0.0.0.0. This is a laptop that joins other networks, and
+      # an unauthenticated Loki reachable from a cafe's wifi is not a trade
+      # worth making for a debugging convenience.
+      - "127.0.0.1:3100:3100"
+    # No healthcheck: the grafana/loki image is distroless - no shell, no wget -
+    # so CMD-SHELL cannot run and the container would sit at `health: starting`
+    # forever while working perfectly. Same as the production file; the reason
+    # is in docs/shared-stack.md.
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    logging: *log_rotation
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy:/etc/alloy:ro
+      - dev_alloy_data:/var/lib/alloy/data
+      # The docker socket is root on this machine too. It is mounted for the
+      # same reason as in production - container names and compose labels are
+      # what make a stream findable - and it is worth knowing that this is the
+      # most privileged container you run locally.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.2
+    restart: unless-stopped
+    logging: *log_rotation
+    environment:
+      GF_SERVER_HTTP_PORT: "8008"
+      # A default here, unlike the production file's `:?`. That difference is
+      # deliberate: production must refuse to start rather than fall back to
+      # admin/admin, and a local stack on loopback must not need a secret to
+      # look at. Do not copy this line into docker-compose.prod.yml.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - dev_grafana_data:/var/lib/grafana
+    ports:
+      # 8008 is what apps.yml reserves for `logs`, so the local port matches the
+      # registry allocation rather than inventing one - see docs/dev-ports.md.
+      - "127.0.0.1:8008:8008"
+    depends_on:
+      - loki
+
+volumes:
+  # dev_ prefixed and distinct from the production names, so a local experiment
+  # can never be mistaken for, or restored over, the box's data.
+  dev_loki_data:
+  dev_alloy_data:
+  dev_grafana_data:

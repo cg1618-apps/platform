@@ -3,9 +3,30 @@
 # nothing in this repository would say it existed.
 apiVersion: 1
 
+# Removed before the block below is applied, and it is not redundant.
+#
+# Provisioning looks an existing datasource up by UID. Pinning `uid: loki` on a
+# Grafana that already had this datasource under a GENERATED uid makes that
+# lookup fail, and the whole provisioning module dies at boot with
+# "Datasource provisioning error: data source not found" - taking Grafana with
+# it. Measured, not predicted: it happened on the development stack when the
+# uid was first pinned, and it would have happened identically on the box.
+#
+# Deleting by NAME first makes the file the whole truth: whatever Loki
+# datasource exists is removed, then recreated exactly as described below.
+deleteDatasources:
+  - name: Loki
+    orgId: 1
+
 datasources:
   - name: Loki
     type: loki
+    # Pinned. Without it Grafana generates a uid per instance, so the same
+    # provisioned dashboard would reference a datasource that exists on the
+    # laptop and not on the box - and the panel fails with "datasource not
+    # found", which reads as a broken dashboard rather than a broken
+    # reference.
+    uid: loki
     access: proxy
     # The compose service name on the cg1618 network. Grafana queries Loki
     # server-side, so this is resolved by the container rather than by the

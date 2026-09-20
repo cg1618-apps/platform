@@ -205,6 +205,7 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
       - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana_data:/var/lib/grafana
     networks:
       cg1618:

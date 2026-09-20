@@ -1,0 +1,24 @@
+# Dashboards provisioned from files, for the same reason the datasource is: a
+# dashboard built in the UI lives in Grafana's own database, so it survives a
+# restart and not a rebuild, and nothing in this repository would say it ever
+# existed.
+#
+# The cost is that a provisioned dashboard is READ-ONLY in the UI. Editing one
+# is editing the JSON here and landing it like any other change - which is the
+# intent. Explore is where ad-hoc questions belong; a dashboard is a question
+# worth keeping, and those should be reviewable.
+apiVersion: 1
+
+providers:
+  - name: cg1618
+    orgId: 1
+    folder: cg1618
+    type: file
+    disableDeletion: false
+    # Grafana re-reads the directory on this interval, so a change to the JSON
+    # shows up without restarting the container.
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

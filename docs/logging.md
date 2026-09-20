@@ -349,6 +349,63 @@ nothing to it, and the three steps that change that are in
 [open-items.md](open-items.md). Until then production output is `docker logs`
 over SSH, per container, and nothing survives a deploy.
 
+## The dashboard, and the four standing questions
+
+`logs.cg1618.com` opens on **Dashboards → cg1618 → Box overview**. It exists so
+the recurring questions are already asked; Explore is for the ones that are not.
+
+It is **provisioned from files** — `observability/grafana/dashboards/` in this
+repository — for the same reason the datasource is. A dashboard built in the UI
+lives in Grafana's own database, survives a restart but not a rebuild, and
+nothing here would say it ever existed. The cost is that it is read-only in the
+browser: changing it means editing the JSON and landing it like any other
+change, which is the intent.
+
+The four questions, and the panel that answers each:
+
+| Question | Panel | What a bad answer looks like |
+| --- | --- | --- |
+| How much is happening? | *Lines, selected range* and *Log volume by container* | a step change with no deploy behind it |
+| How much of it is wrong? | *Error-ish lines* and *by container* | the **shape** changing, not the absolute number |
+| Is everything still alive? | *Containers reporting* | a **drop**; a container that stops logging usually stopped |
+| What happened to this one request? | *Find one request* | — |
+
+**The error panels are a text match and they over-count.** They look for
+`error|exception|traceback|critical` case-insensitively anywhere in the line, so
+a URL containing the word counts, and Grafana's own structured logging inflates
+it considerably. That is stated in each panel's description rather than left to
+be discovered. Once every app is releasing JSON the honest version is
+`| json | level=~"ERROR|CRITICAL"`, and the panels should change then.
+
+`Containers reporting` is the one to actually watch. The box runs ten
+containers; a number below that is a real signal and needs no interpretation.
+
+### The three variables at the top
+
+`Container` drives the drill-down panel and is populated from Loki, so a new
+app appears there without editing anything. `Search` is a substring filter for
+that panel. `Request ID` takes a value pasted from an `X-Request-ID` response
+header.
+
+All three are **blank-safe**: an empty Loki line filter is a no-op rather than
+an error, so a blank box means "no filter" rather than "no results". The
+consequence is that *Find one request* shows everything until you paste
+something into it, which is not a bug.
+
+### The datasource uid is pinned, and that is load-bearing
+
+`observability/grafana/datasources/loki.yml` sets `uid: loki`. Without it
+Grafana generates one per instance, and a dashboard file that works on a laptop
+fails on the box with "datasource not found" — which reads as a broken
+dashboard rather than a broken reference.
+
+The file also carries a `deleteDatasources` block, and it is not redundant.
+Pinning a uid on a Grafana that already had the datasource under a generated
+one makes provisioning look it up by the **new** uid, fail, and take the entire
+provisioning module down at boot — Grafana does not start. That was measured on
+the development stack, not predicted, and it would have happened identically on
+the box. Deleting by name first makes the file the whole truth.
+
 ## Who conforms today
 
 This is the part to keep accurate; it is the only reason a contract page is not

@@ -229,8 +229,32 @@ Once it is live, the search that answers most questions is the request id from
 {compose_project=~".+"} | json | request_id = "<the id>"
 ```
 
-and the labels Alloy attaches are `container`, `compose_project`,
-`compose_service` and `job="docker"`.
+The label set, read back from a running Loki rather than from the Alloy config:
+
+```
+compose_project  compose_service  container  job  service_name
+```
+
+`container`, `compose_project` and `compose_service` are the ones
+`observability/alloy/config.alloy` attaches, and `job` is `"docker"`.
+**`service_name` is added by Loki itself**, not by Alloy — Loki 3 derives it
+from the stream's labels when none is supplied, so it appears in a label query
+and in nothing this repository wrote. Worth knowing before somebody goes
+looking for where it is set.
+
+**The `app` field and the `container` label are supposed to disagree, and
+neither is wrong.** `media` emits `app="media"` — the registry name, per [Two
+formats](#two-formats-chosen-by-environment) — while its container is
+`media-app-1` and the label derived from it says so. One is what the
+application calls itself, the other is what docker calls the process; they
+differ by the `-app-1` suffix and by nothing else.
+
+That is worth a sentence because the obvious tidying is wrong in both
+directions. Deriving `app` from the container name would make it empty for
+anything not in a container. Relabelling the container to match would break
+the `<name>-app` network alias the generated ingress routes to, and the
+hostname would answer 502 while both files still read correctly on their own.
+Query by the label; read `app` off a line that arrived without one.
 
 ## Who conforms today
 

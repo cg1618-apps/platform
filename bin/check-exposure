@@ -157,6 +157,8 @@ while read -r name hostname exposure gated_paths; do
     set -- ${gated_paths}
     IFS="${old_ifs}"
 
+    probed_parents=""
+
     for path in "$@"; do
         ph="$(curl -sS -D - -o /dev/null --max-time 20 "https://${hostname}${path}" 2>&1)" || {
             echo "${name}: could not reach ${hostname}${path}" >&2
@@ -174,6 +176,45 @@ while read -r name hostname exposure gated_paths; do
             echo "  remove it from gated_paths in apps.yml if it is not a write" >&2
             echo "  surface." >&2
             failed=1
+        fi
+
+        # The same question asked the other way round: did anything ELSE get
+        # gated along with it? An Access policy written as a path prefix is one
+        # typo from covering /api instead of /api/edit, and the result is a
+        # fully working application nobody can read without signing in. Every
+        # container is healthy, the probe above still passes, and the person who
+        # finds out is whoever opens the site on a phone.
+        #
+        # The parent is DERIVED rather than declared - strip the last segment,
+        # so /api/edit probes /api. A list of an app's read paths would be a
+        # second list to drift, and a check asserting a stale set goes green
+        # against paths nobody serves any more.
+        parent="${path%/*}"
+        # A single-segment prefix derives the root, which the hostname probe
+        # above already covers for a public app.
+        [ -n "${parent}" ] || continue
+        # Two gated prefixes under one parent would otherwise probe it twice.
+        case " ${probed_parents} " in *" ${parent} "*) continue ;; esac
+        probed_parents="${probed_parents} ${parent}"
+
+        oh="$(curl -sS -D - -o /dev/null --max-time 20 "https://${hostname}${parent}" 2>&1)" || {
+            echo "${name}: could not reach ${hostname}${parent}" >&2
+            echo "${oh}" >&2
+            exit 1
+        }
+        ostatus="$(printf '%s' "${oh}" | awk 'NR==1{print $2}')"
+        if printf '%s' "${oh}" | grep -qi '^location:.*cloudflareaccess\.com'; then
+            echo "${name}: ${parent} IS GATED BUT NOTHING DECLARED IT" >&2
+            echo "  ${hostname}${parent} sits just outside ${path}, and the" >&2
+            echo "  registry calls this app 'public'. The Access application is" >&2
+            echo "  WIDER than ${path} - most likely a prefix typed one segment" >&2
+            echo "  short. Nobody can read this app without signing in, and" >&2
+            echo "  every container is healthy, which is why nothing else" >&2
+            echo "  notices. Narrow the Access policy, or declare ${parent} in" >&2
+            echo "  gated_paths if gating it was deliberate." >&2
+            failed=1
+        else
+            echo "${name}: ${parent} ungated, so the gate on ${path} is not too wide (${ostatus})"
         fi
     done
 done <<< "${targets}"

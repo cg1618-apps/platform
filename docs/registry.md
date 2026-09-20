@@ -190,6 +190,35 @@ that opening them up later is an Access policy edit rather than a redesign. The
 same applies in reverse to a `public` app: put the write surface under its own
 prefix and protect that, or a public hostname is a public editor.
 
+**`bin/check-exposure` asks the question in both directions.** For each
+declared prefix it probes the prefix itself and asserts the Access redirect is
+there — and then probes the prefix's **parent** and asserts it is not.
+
+The second one catches a policy that is too *wide*. An Access rule written as a
+path prefix is one typo from covering `/api` instead of `/api/edit`, and the
+result is a fully working application nobody can read without signing in: every
+container healthy, the hostname answering, the declared prefix gated exactly as
+the registry says. The person who finds out is whoever opens the site on a
+phone.
+
+The parent is **derived**, by stripping the last segment, rather than declared.
+A list of an app's read paths would be a second list to drift, and a check
+asserting a stale set goes green against paths nobody serves any more — worse
+than no check. A single-segment prefix derives `/`, which the hostname probe
+already covers.
+
+Measured against production on 2026-09-20:
+
+```
+food: /api/edit gated by Access, as declared (302)
+food: /api ungated, so the gate on /api/edit is not too wide (404)
+```
+
+The `404` there is food's own router refusing an unregistered `/api/...` path,
+not a gate — which is exactly why this keys on the **redirect** and never on
+the status code. That path will answer `405` or `422` as the app grows, and the
+check will not notice.
+
 **Moving an app from `cloudflare-access` to `public` moves the gate from
 Cloudflare into code.** The app's own visibility checks must already work
 before that change lands — and be tested for *refusal*, with fixtures that make

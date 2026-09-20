@@ -133,6 +133,33 @@ was rejected because a container using it will not start when Loki is down.
 That trades "the logs are missing" for "the application is missing", which is
 the wrong direction for something whose only job is to watch.
 
+### Loki has no healthcheck, and that is deliberate
+
+The `grafana/loki` image is **distroless**: it holds the `loki` binary and no
+shell. A `CMD-SHELL` healthcheck fails with
+
+```
+exec: "/bin/sh": stat /bin/sh: no such file or directory
+```
+
+and plain `CMD` is no better, because there is no `wget` or `curl` in there to
+run either. The failure mode is the reason this is written down rather than
+just omitted: a healthcheck written anyway does **not** report that Loki is
+unwell. It reports nothing, forever — the container sits at `health: starting`
+indefinitely, every `docker compose ps` shows what looks like a Loki that never
+came up, and the container underneath is working perfectly. It cost two CI runs
+to find that the pipeline was fine and the probe was impossible.
+
+Loki is therefore probed **from outside**. CI asks `http://loki:3100/ready`
+from inside the `grafana` container, which is on this network and does have a
+shell, and then asserts Loki has a `container` label to show for what Alloy
+pushed — which exercises the socket read, the push, the store and the query
+end to end.
+
+`/ready` rather than `/metrics`, wherever it is asked from: Loki serves metrics
+before it can answer a query, so a probe on `/metrics` goes green while every
+search fails.
+
 ### Grafana listens on 8008, not 3000
 
 `apps.yml` assigns the port and `bin/generate_ingress.py` writes

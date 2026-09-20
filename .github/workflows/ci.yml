@@ -152,19 +152,21 @@ jobs:
       # query accepts writes and comes up healthy, and a Grafana whose
       # provisioned datasource is malformed serves its UI perfectly while
       # every dashboard is empty. Both failures reach the box looking fine.
+      # Started is not enough for any of this. A Loki whose schema cannot be
+      # queried accepts writes and looks fine; a Grafana whose provisioned
+      # datasource failed to parse serves its UI perfectly with every
+      # dashboard empty. Both reach the box looking healthy.
+      #
+      # Every probe runs INSIDE the grafana container. It is on the cg1618
+      # network and has a shell; the loki image is distroless and has neither
+      # a shell nor wget, which is why Loki carries no healthcheck.
       - name: Prove Loki answers and Grafana found its datasource
         run: |
           set -euo pipefail
 
-          for _ in $(seq 1 30); do
-            status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-loki-1)"
-            [ "${status}" = "healthy" ] && break
-            echo "loki: ${status}"
-            sleep 3
-          done
-          [ "${status}" = "healthy" ]
+          GF=(docker compose -f docker-compose.prod.yml exec -T grafana)
 
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 40); do
             status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-grafana-1)"
             [ "${status}" = "healthy" ] && break
             echo "grafana: ${status}"
@@ -172,29 +174,37 @@ jobs:
           done
           [ "${status}" = "healthy" ]
 
+          # Loki's own readiness, probed across the network from grafana.
+          for _ in $(seq 1 40); do
+            ready="$("${GF[@]}" wget -q -O - 'http://loki:3100/ready' || true)"
+            echo "loki/ready: ${ready}"
+            case "${ready}" in *ready*) break ;; esac
+            sleep 3
+          done
+          case "${ready}" in *ready*) ;; *) echo "loki never became ready"; exit 1 ;; esac
+
           # The provisioned datasource, read back from Grafana's own API. A
           # datasource file that failed to parse leaves Grafana running and
           # healthy with no datasource at all, saying so only in its log.
           #
-          # An Authorization header rather than http://admin:ci@host/ - the
-          # image ships busybox wget, whose handling of userinfo in a URL
-          # varies by build, and a probe that fails for its own reasons is
-          # worse than no probe.
-          GF=(docker compose -f docker-compose.prod.yml exec -T grafana)
-          "${GF[@]}" wget -q -O - --header 'Authorization: Basic YWRtaW46Y2k=' 'http://127.0.0.1:8008/api/datasources' > /tmp/ds.json
-          cat /tmp/ds.json
-          grep -q '"type":"loki"' /tmp/ds.json
+          # An Authorization header rather than userinfo in the URL: the image
+          # ships busybox wget, whose handling of user:pass@host varies by
+          # build, and a probe that fails for its own reasons is worse than no
+          # probe.
+          "${GF[@]}" wget -q -O - --header 'Authorization: Basic YWRtaW46Y2k=' 'http://127.0.0.1:8008/api/datasources' > ds.json
+          cat ds.json
+          grep -q '"type":"loki"' ds.json
 
           # End to end: Alloy read the docker socket, pushed to Loki, and Loki
           # can answer a query about it. Nothing above proves the middle of
-          # that - both containers are healthy whether or not anything flows.
-          for _ in $(seq 1 30); do
-            labels="$(docker compose -f docker-compose.prod.yml exec -T loki wget -q -O - 'http://127.0.0.1:3100/loki/api/v1/labels' || true)"
+          # that - Grafana is healthy whether or not anything is flowing.
+          for _ in $(seq 1 40); do
+            labels="$("${GF[@]}" wget -q -O - 'http://loki:3100/loki/api/v1/labels' || true)"
             echo "labels: ${labels}"
-            echo "${labels}" | grep -q '"container"' && break
+            case "${labels}" in *'"container"'*) break ;; esac
             sleep 3
           done
-          echo "${labels}" | grep -q '"container"'
+          case "${labels}" in *'"container"'*) ;; *) echo "loki has no container label; nothing reached it"; exit 1 ;; esac
 
       - name: What the observability containers said
         if: always()

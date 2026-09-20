@@ -145,14 +145,17 @@ services:
       - loki_data:/loki
     networks:
       - cg1618
-    healthcheck:
-      # /ready, not /metrics: Loki serves metrics before it can answer a
-      # query, so a probe on /metrics goes green while every search fails.
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3100/ready | grep -q ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
+    # NO healthcheck, and not by oversight. The grafana/loki image is
+    # distroless: it contains the loki binary and no shell, so CMD-SHELL fails
+    # with `exec: "/bin/sh": stat /bin/sh: no such file or directory`, and
+    # there is no wget or curl to use with plain CMD either. A healthcheck
+    # written anyway does not report "Loki is unwell" - it reports nothing,
+    # forever, while the container sits at `health: starting` and every
+    # `docker compose ps` looks like a Loki that never came up.
+    #
+    # Loki's readiness is asserted from OUTSIDE the container instead: CI
+    # probes http://loki:3100/ready from the grafana container, which is on
+    # this network and does have a shell.
 
   alloy:
     image: grafana/alloy:v1.19.2

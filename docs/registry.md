@@ -128,6 +128,14 @@ Both are committed rather than built at deploy time, so what will be served
 appears in the pull request diff where a person reads it. Neither is ever
 hand-edited; CI fails when the committed output and `apps.yml` disagree.
 
+**Not everything in `apex/html/` is generated.** `favicon.svg` and
+`favicon.ico` sit beside the generated page as ordinary committed assets, and
+are edited by replacing the file. Only `index.html` is generator output, and
+only `index.html` is what `--check` compares. The `<link rel="icon">` tags that
+point at them live in `bin/generate_apex.py`'s template, because the page they
+appear in is generated — so changing the icon's *filename* is a generator
+change, while changing the icon's *picture* is not.
+
 **The apex page is not in the registry.** `cg1618.com` is a rendering of
 `apps.yml` rather than an application, so it has no entry and its ingress rule
 is emitted unconditionally. That it is infrastructure is *not* the reason —

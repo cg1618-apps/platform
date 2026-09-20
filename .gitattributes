@@ -7,3 +7,9 @@
 # and the failure names the interpreter rather than the line endings.
 bin/* text eol=lf
 *.sh text eol=lf
+
+# Binary assets, declared rather than left to git's NUL-byte sniffing. An .ico
+# is safe to auto-detect today, but the company machine checks out with
+# autocrlf=true and a mangled icon is a defect that shows up only in a browser
+# tab - which is nowhere near where anyone would look for it.
+*.ico binary

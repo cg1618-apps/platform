@@ -310,6 +310,37 @@ volume survives. Recorded because the same keystroke on the box has a different
 blast radius, and because the reason it is easy to get wrong is a rule this
 repository correctly insists on.
 
+## The box's docker daemon still has no default log cap
+
+Every service in `docker-compose.prod.yml` now caps its log driver, and each
+app's compose file is expected to do the same for its own service. Neither
+covers anything started **outside** a compose file — a one-off `docker run`, a
+container the Actions runner leaves behind, whatever a later session starts by
+hand while debugging. Those take the daemon default, and the box has no
+`/etc/docker/daemon.json` at all, so that default is still `json-file` with no
+`max-size`.
+
+It is a much smaller hole than the one that was just closed: the long-lived
+containers are all in compose files. What it catches is the container nobody
+wrote a compose file for, which is also the one nobody will think to check.
+
+```bash
+# on the box, once
+sudo tee /etc/docker/daemon.json <<'EOF'
+{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
+EOF
+sudo systemctl restart docker
+```
+
+**The restart bounces every container on the box**, which is the only reason
+this is an open item rather than something already done. It needs a moment
+when a few seconds of every hostname 502-ing is acceptable, and it needs root —
+the platform sessions reach the box over SSH without passwordless `sudo`, so
+this is the owner's to run or to grant.
+
+It does not make the per-service blocks redundant. The daemon default is not
+in this repository, where a diff would show it changing.
+
 ## `bin/rollback` names a document three apps do not have
 
 Tier 3 freezes and tells the operator:

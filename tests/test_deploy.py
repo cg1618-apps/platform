@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "bin" / "deploy"
@@ -873,3 +874,36 @@ def test_every_shell_script_in_bin_is_executable_in_the_commit():
     assert len(modes) == len(scripts), f"ls-tree returned {modes}, expected {scripts}"
     for path, mode in sorted(modes.items()):
         assert mode == "100755", f"{path} is {mode} in HEAD; git update-index --chmod=+x"
+
+
+def test_every_production_service_caps_its_log_driver():
+    """Docker's default json-file driver has no size limit at all.
+
+    Nothing rotates it and nothing prunes it: the file grows until the disk
+    is full, which on this box takes the shared PostgreSQL and every hostname
+    down together and says nothing about why. The failure is slow enough that
+    it will not be the change that caused it that gets blamed.
+
+    The cap is declared per service rather than left to the daemon default
+    because a compose file is the thing a person reads when adding a service,
+    and because the daemon default lives on the box rather than in a file a
+    diff would show changing. See docs/shared-stack.md.
+    """
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+    assert services, "found no services at all - this test would pass vacuously"
+
+    for name, service in services.items():
+        logging_config = service.get("logging")
+        assert logging_config, (
+            f"{name} declares no logging driver, so it inherits docker's "
+            f"default json-file with NO max-size and grows until the disk is full"
+        )
+        assert logging_config.get("driver") == "json-file", name
+        options = logging_config.get("options") or {}
+        # Strings, both of them. Compose passes these through to the daemon as
+        # given, and a YAML-native integer for max-file is rejected at start.
+        assert options.get("max-size") == "10m", name
+        assert options.get("max-file") == "5", name

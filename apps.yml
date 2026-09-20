@@ -117,11 +117,12 @@ apps:
     exposure: cloudflare-access
     health_path: /api/health
     migrations: false
-    # PLANNED, not live, and the difference is the whole point of the field.
-    # No Access application covers this hostname yet, and `live` would route
-    # it through the tunnel the moment the ingress regenerated - publishing an
-    # unauthenticated Grafana holding four applications' logs. It goes live in
-    # a one-line change AFTER the Access application exists and
-    # bin/check-exposure has been run against it.
-    status: planned
+    # Live. The Access application covering this hostname exists and was
+    # measured from the open internet before this line changed, rather than
+    # confirmed in a dashboard: an unauthenticated GET to
+    # https://logs.cg1618.com answered 302 to cg1618.cloudflareaccess.com,
+    # which is the redirect bin/check-exposure keys on. That ordering is the
+    # protection - live first would have published an unauthenticated Grafana
+    # holding four applications' logs.
+    status: live
     description: Logs from every container on the box

@@ -177,46 +177,6 @@ stranding the row that records it; that is why the rule is reparent, never
 renumber. The baselines stay, and what is written down is that they are
 inherited rather than chosen.
 
-## Nothing checks whether an Access policy is too WIDE
-
-`bin/check-exposure` now asks whether each `gated_paths` prefix is gated. It
-does not ask whether anything *else* got gated with it, and that failure is
-quieter than the one it does catch.
-
-**The failure, stated as a failure.** An Access policy written as a path prefix
-is one typo from covering `/api` instead of `/api/edit`. The result is a fully
-working application that nobody can read without signing in. Every container is
-healthy, every existing probe passes if the policy starts below the root, and
-the person who discovers it is whoever opens the site on a phone in a shop —
-which is the case a `public` app exists for.
-
-**Do not write down a list of an app's read paths.** `food` offered five, and
-they would be wrong the moment module 2 lands: a check asserting a stale set
-goes green against paths nobody serves any more, which is worse than no check.
-
-The rule that does not rot is the complement of what `gated_paths` already
-says. An app's invariant is "everything not under a gated path is public", so
-the check is: **for each declared prefix, probe one path just outside it and
-assert it answers ungated.** That parent can be derived rather than declared —
-strip the last segment, so `/api/edit` probes `/api` — which means no new
-registry key and no second list to drift. A single-segment prefix derives `/`,
-which is already probed.
-
-`food` also names one concrete path that will still exist in a year if a
-literal is ever wanted: `/api/ingredients`, module 1's list endpoint, the first
-thing the app ever served and not removed by anything later.
-
-**The probe must key on the Access redirect, never on the status code**, which
-the existing one already does and which matters more here. `food.cg1618.com`
-answers `404` on `/api/edit` today because `app/main.py` refuses `/api/...`
-explicitly rather than serving the SPA catch-all — the app deliberately saying
-"no such route", not a dead container. After food's first release that same
-path answers `405` or `422`, because the route will exist but a bare GET will
-not match it. A check keyed on status would move under that transition; one
-keyed on the redirect does not notice it at all.
-
-Small to build, and it belongs in the same loop that probes the prefixes.
-
 ## `bin/rollback` names a document three apps do not have
 
 Tier 3 freezes and tells the operator:

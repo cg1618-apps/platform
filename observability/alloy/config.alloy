@@ -1,0 +1,50 @@
+// Grafana Alloy: discover every container on this box, tail its stdout, and
+// push it to Loki with labels that say where it came from.
+//
+// Alloy reads the docker socket rather than the log files under
+// /var/lib/docker/containers, because the socket gives it the container's
+// labels - compose project, compose service - and the files give it a
+// directory of hex ids. The cost of that is real and is written down in
+// docs/shared-stack.md: the socket is root on this box, so this container is
+// the most privileged thing in the project.
+
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// Docker reports the name with a leading slash: "/media-app-1".
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/?(.*)"
+		target_label  = "container"
+	}
+
+	// The compose project separates the platform's own services from each
+	// app's, which is the first cut anybody makes when reading this.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		target_label  = "compose_project"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "compose_service"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	labels     = {job = "docker"}
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

@@ -94,6 +94,82 @@ Its health probe is `/healthz` rather than `/`, because `try_files` serves the
 page for any path — a probe against `/` cannot tell a working server from one
 serving a stale document.
 
+## Observability: Loki, Alloy and Grafana
+
+Three more containers in this project, doing one job — every container's
+stdout, searchable in one place, surviving the deploy that recreated the
+container. What the applications put *into* the stream is
+[logging.md](logging.md); this is where it goes.
+
+| Service | Image | Does |
+| --- | --- | --- |
+| `alloy` | `grafana/alloy:v1.19.2` | reads the docker socket, tails every container, labels and pushes |
+| `loki` | `grafana/loki:3` | stores it, on the filesystem in `loki_data` |
+| `grafana` | `grafana/grafana:13.2` | reads Loki; the thing a person opens |
+
+**Loki rather than Elasticsearch** because this is a mini PC that is also
+running four applications and a database; Loki indexes labels rather than full
+text, which fits a box where the question is nearly always "what did this
+container do around this time". The full reasoning, and the Dozzle fallback
+that was not needed, is in [notes/decisions.md](notes/decisions.md).
+
+### Alloy holds the docker socket, and that is the real cost
+
+`/var/run/docker.sock` is mounted into the Alloy container. **The docker socket
+is root on this box** — anything that can write to it can start a privileged
+container and own the machine — so Alloy is by some distance the most trusted
+thing in this project. The `:ro` on the mount narrows what the kernel permits
+on the socket *file*; it does not make the docker API read-only, and it should
+be read as a statement of intent rather than as a control.
+
+It is mounted anyway because the alternative is worse in the way that matters.
+Reading the log files under `/var/lib/docker/containers` needs the same root
+and gives Alloy a directory of hex container ids — no container name, no
+compose project, nothing to label a stream by. The labelling is the entire
+value; without it this is `docker logs` with extra steps.
+
+The third option — the Loki docker **logging driver**, which needs no socket —
+was rejected because a container using it will not start when Loki is down.
+That trades "the logs are missing" for "the application is missing", which is
+the wrong direction for something whose only job is to watch.
+
+### Grafana listens on 8008, not 3000
+
+`apps.yml` assigns the port and `bin/generate_ingress.py` writes
+`http://logs-app:8008` into the tunnel from it, so `GF_SERVER_HTTP_PORT` is set
+to match and the service takes the alias `logs-app`. It is the same two-sided
+`<name>-app` contract every application has, and it breaks the same way: change
+one side and the hostname answers 502 while both files still read correctly on
+their own.
+
+### Grafana keeps its own login
+
+`exposure: cloudflare-access` means Cloudflare authenticates before a request
+reaches the box, which for `travel` and `art` is the whole gate and no auth
+code lives in the app. Grafana keeps its own admin login **as well**, because
+this one hostname can read every application's logs, and the failure that has
+actually happened here is a DNS record reaching the box with no Access
+application behind it.
+
+`GF_SECURITY_ADMIN_PASSWORD` comes from `GRAFANA_ADMIN_PASSWORD` in the
+platform's `.env`, interpolated with `:?` rather than a default. An unset
+variable therefore **fails the whole `docker compose up`**. That is deliberate:
+with a default, Grafana would fall back to its built-in `admin`/`admin` and the
+container would come up looking entirely healthy.
+
+### What it stores, and for how long
+
+`loki_data`, `grafana_data` and `alloy_data` are named volumes in this project,
+so they survive a container recreate — which is the point, since the json-file
+log does not. Retention is 90 days, set in `observability/loki/loki-config.yml`
+and enforced by the compactor. `retention_enabled: true` on the compactor is
+not optional: without it, `retention_period` is read, accepted, and silently
+does nothing.
+
+Ninety days is chosen for how far back a question is ever asked, not for
+capacity. At the box's current rate — roughly 1 MB a day across every container
+before compression — it is well under a gigabyte.
+
 ## What is not here yet
 
 Deploying is still each application's own `deploy/` directory. The reusable

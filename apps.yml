@@ -94,3 +94,34 @@ apps:
     migrations: true
     status: live
     description: Practice records, references, schedule, and the drawing roadmap
+
+  # The box's own observability, and the first entry that is NOT an app in
+  # its own repository. It is here rather than emitted unconditionally like
+  # the apex page for one reason: bin/check-exposure iterates this file, so a
+  # cloudflare-access hostname that is absent from it is a hostname nothing
+  # probes. That is exactly how art served unauthenticated for twenty
+  # minutes, and this hostname holds every application's logs.
+  - name: logs
+    hostname: logs.cg1618.com
+    port: 8008
+    # Grafana keeps its own state in a docker volume, not in the shared
+    # PostgreSQL. Pointing it at `db` would put the thing that reports on an
+    # outage inside the blast radius of one.
+    database: null
+    # null means platform-owned: this service is in THIS repository's
+    # docker-compose.prod.yml, so there is no cg1618-apps/logs to clone, no
+    # deploy workflow and nothing for bin/provision to do.
+    # bin/validate_apps.py refuses migrations, a database or a path alongside
+    # it.
+    repo: null
+    exposure: cloudflare-access
+    health_path: /api/health
+    migrations: false
+    # PLANNED, not live, and the difference is the whole point of the field.
+    # No Access application covers this hostname yet, and `live` would route
+    # it through the tunnel the moment the ingress regenerated - publishing an
+    # unauthenticated Grafana holding four applications' logs. It goes live in
+    # a one-line change AFTER the Access application exists and
+    # bin/check-exposure has been run against it.
+    status: planned
+    description: Logs from every container on the box

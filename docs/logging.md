@@ -195,17 +195,42 @@ every deploy.
 
 ## Where this is read
 
-**Not built yet.** Today the only way to read production output is
-`docker logs` over SSH, on the box, per container — which means the manager
-session, and means nothing survives a deploy.
+**Defined and CI-verified; not serving yet.** `docker-compose.prod.yml` in
+this repository runs Loki, Alloy and Grafana, and every pull request starts
+them, pushes real container output through them and asserts Loki can answer a
+query about it. What has not happened is the last step:
+`logs.cg1618.com` is `status: planned` in `apps.yml`, so the tunnel routes
+nothing to it.
 
-The plan is one collector on the box for all of it: Grafana Alloy tailing the
-docker socket and labelling streams by container, Loki storing them, Grafana
-reading them, behind a `cloudflare-access` hostname in `apps.yml` like
-anything else. The box has the headroom — measured 2026-09-20: 14.0 GB of
-15.2 GB RAM available, 80 GB of 98 GB disk free, all seven current containers
-together under 550 MB. This page gets its "where to look" section when that
-lands, and not before.
+Until it is live, production output is `docker logs` over SSH, per container,
+from the manager session — and nothing survives a deploy.
+
+Three things stand between here and live, and each is the owner's:
+
+1. **A Cloudflare Access application covering `logs.cg1618.com`**, and its DNS
+   record. Dashboard work, and the only step that makes the gate real.
+2. **`GRAFANA_ADMIN_PASSWORD` in the box's platform `.env`.** The compose entry
+   uses `:?`, so the stack refuses to start without it rather than falling back
+   to `admin`/`admin`.
+3. **Then `status: live`**, one line, after `bin/check-exposure logs` has been
+   run and has said the hostname is gated. In that order — `live` first would
+   publish an unauthenticated Grafana holding four applications' logs, which is
+   the `art` failure with worse contents.
+
+The box has the headroom, measured on 2026-09-20 rather than estimated: 14.0 GB
+of 15.2 GB RAM available, 80 GB of 98 GB disk free, all seven containers then
+running under 550 MB together. The three new ones are expected around
+400–500 MB.
+
+Once it is live, the search that answers most questions is the request id from
+[Request IDs](#request-ids) above:
+
+```logql
+{compose_project=~".+"} | json | request_id = "<the id>"
+```
+
+and the labels Alloy attaches are `container`, `compose_project`,
+`compose_service` and `job="docker"`.
 
 ## Who conforms today
 

@@ -15,7 +15,7 @@ apps:
     hostname: media.cg1618.com
     port: 8000
     database: media          # null is legal: an app need not have one
-    repo: git@github.com:cg1618-apps/media.git
+    repo: git@github.com:cg1618-apps/media.git   # null = the platform owns it
     exposure: public         # public | cloudflare-access | lan-only
     health_path: /api/health
     migrations: true         # does this app ship deploy/migrations?
@@ -59,9 +59,15 @@ person's decision rather than a script's guess. Before the key existed, an
 absent hook and a hook that had lost its `+x` were the same observation, and
 the second one deploys an unapproved migration with no rollback target.
 
-Only applications that **exist** are listed. An entry claims a hostname, a port
-and a database; claiming them for something unbuilt is how a registry stops
-being true.
+Only things that **exist** are listed. An entry claims a hostname, a port and
+a database; claiming them for something unbuilt is how a registry stops being
+true.
+
+Almost every entry is an application in a repository of its own. One is not —
+`logs`, the box's observability, which lives in this repository and carries
+`repo: null`. See "[`repo: null` — an entry the platform itself
+owns](#repo-null--an-entry-the-platform-itself-owns)" below for why it is
+registered while the apex page is not.
 
 ## Two layers of validation, because they catch different things
 
@@ -124,11 +130,50 @@ hand-edited; CI fails when the committed output and `apps.yml` disagree.
 
 **The apex page is not in the registry.** `cg1618.com` is a rendering of
 `apps.yml` rather than an application, so it has no entry and its ingress rule
-is emitted unconditionally. The day it needs a backend, a database,
+is emitted unconditionally. That it is infrastructure is *not* the reason —
+`logs` is infrastructure too and is registered; the reason is below. The day it needs a backend, a database,
 authentication or per-user state it becomes `cg1618-apps/landing` with its own
 repository, its own port and an entry like any other app — that rule is what
 keeps "no application code in the infrastructure repository" honest rather than
 arbitrary.
+
+## `repo: null` — an entry the platform itself owns
+
+Every entry above is an application in `cg1618-apps/<name>`. **`logs` is not.**
+Grafana, Loki and Alloy are services in this repository's
+`docker-compose.prod.yml`, so there is no repository to clone, no deploy
+workflow, nothing for `bin/provision` to do and no schema to migrate. `repo:
+null` says exactly that, the way `database: null` says "no database".
+
+**Why it is in the registry at all**, when the apex page — also infrastructure,
+also in this repository — deliberately is not:
+
+`bin/check-exposure` iterates `apps.yml`. A `cloudflare-access` hostname that
+is absent from this file is a hostname **nothing probes**, and a DNS record
+with no Access application behind it looks identical to a working one from
+everywhere except the open internet. That is precisely what happened to `art`.
+An unauthenticated Grafana is worse than an unauthenticated anything else here,
+because it holds every application's logs — so the argument that keeps the apex
+page out (it is a rendering of the registry, it authenticates nobody, nothing
+is at stake) is the argument that puts this one in.
+
+It also reserves the port. `apex` listens on **8007** and has no entry, so
+nothing stops a future app claiming 8007 and colliding with it; `logs` at 8008
+cannot be taken that way.
+
+`bin/validate_apps.py` refuses three things alongside a null `repo`, rather
+than ignoring them:
+
+| Also declared | Refused because |
+| --- | --- |
+| `migrations: true` | there is no `deploy/migrations` hook and nothing would ever run one |
+| a `database` | `bin/provision` finds the checkout via `repo`, so it cannot provision this entry |
+| a `path` | there is nothing to check out |
+
+The `repo` **pattern** still applies when the value is present: an exemption
+for null is not an exemption for a wrong name. `bin/provision` refuses such an
+entry by name before it looks at anything else, because "declares no database"
+would also be true and would send the reader after the wrong thing.
 
 ## Exposure, and where the gate lives
 

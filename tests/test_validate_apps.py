@@ -211,3 +211,70 @@ def test_the_port_just_below_the_floor_is_allowed():
     # this, narrowing the band to nothing would still pass the two above.
     registry = {"apps": [app(port=8049)]}
     assert validate(registry) == []
+
+
+# --- platform-owned entries: repo is null -----------------------------------
+#
+# `logs` is the first entry that is not an app in a repository of its own. It
+# is registered so that bin/check-exposure probes its hostname - a
+# cloudflare-access hostname absent from this file is one nothing asks about,
+# which is how art served unauthenticated - and it is deployed and provisioned
+# by nothing.
+#
+# Every refusal below is paired with the same fixture passing once the
+# offending field is removed. Without the mirror, a rule that refused every
+# null-repo entry outright would pass all three.
+
+
+def platform_service(**overrides):
+    base = app(
+        name="logs",
+        hostname="logs.cg1618.com",
+        port=8008,
+        database=None,
+        repo=None,
+        exposure="cloudflare-access",
+        migrations=False,
+        description="Logs from every container on the box",
+    )
+    base.update(overrides)
+    return base
+
+
+def test_a_platform_owned_entry_is_clean():
+    assert validate({"apps": [platform_service()]}) == []
+
+
+def test_a_platform_owned_entry_may_not_declare_migrations():
+    problems = validate({"apps": [platform_service(migrations=True)]})
+    assert any("migrations" in p for p in problems), problems
+
+
+def test_a_platform_owned_entry_may_not_claim_a_database():
+    problems = validate({"apps": [platform_service(database="logs")]})
+    assert any("database" in p for p in problems), problems
+
+
+def test_a_platform_owned_entry_may_not_declare_a_checkout_path():
+    problems = validate({"apps": [platform_service(path="~/logs")]})
+    assert any("path" in p for p in problems), problems
+
+
+def test_a_platform_owned_entry_is_exempt_from_the_repository_name_rule():
+    """The rule it IS exempt from, asserted as its own case.
+
+    An app named `logs` with a repository must still name
+    cg1618-apps/logs.git - the exemption is for null, not for the name - so
+    the mirror here is the same entry with a wrong repository, which must
+    still be refused.
+    """
+    assert validate({"apps": [platform_service()]}) == []
+
+    wrong = platform_service(repo="git@github.com:cg1618-apps/media.git")
+    assert any("names repository" in p for p in validate({"apps": [wrong]}))
+
+
+def test_an_ordinary_app_still_needs_a_repository_matching_its_name():
+    """The null exemption must not have loosened the rule for real apps."""
+    problems = validate({"apps": [app(repo="git@github.com:cg1618-apps/food.git")]})
+    assert any("names repository" in p for p in problems), problems

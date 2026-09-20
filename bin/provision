@@ -41,6 +41,13 @@ apps = yaml.safe_load(open("apps.yml"))["apps"]
 match = [a for a in apps if a["name"] == name]
 if not match:
     sys.exit(f"{name} is not in apps.yml")
+if match[0]["repo"] is None:
+    # A platform-owned entry - the log collector - lives in this repository.
+    # It has no checkout, no database and no deploy workflow, so every step
+    # below is meaningless for it. Checked before the database, because
+    # "declares no database" would be true and would send the reader looking
+    # for the wrong thing.
+    sys.exit(f"{name} is platform-owned (repo: null); there is nothing to provision")
 if match[0]["database"] is None:
     sys.exit(f"{name} declares no database")
 print(match[0]["database"])

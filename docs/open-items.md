@@ -310,6 +310,29 @@ volume survives. Recorded because the same keystroke on the box has a different
 blast radius, and because the reason it is easy to get wrong is a rule this
 repository correctly insists on.
 
+## `logs.cg1618.com` is registered and planned, and three things make it live
+
+Loki, Alloy and Grafana are in `docker-compose.prod.yml` and CI starts them,
+pushes real container output through them and asserts Loki answers a query
+about it. The registry entry is `status: planned`, so the tunnel routes
+nothing and nothing is exposed.
+
+All three remaining steps need the owner, and **the order is not
+interchangeable**:
+
+1. **The Cloudflare Access application covering `logs.cg1618.com`**, plus its
+   DNS record. Dashboard work; the only step that makes the gate real.
+2. **`GRAFANA_ADMIN_PASSWORD` in the box's platform `.env`.** The compose entry
+   interpolates it with `:?`, so the whole stack refuses to start without it
+   rather than falling back to Grafana's built-in `admin`/`admin`. Nothing in
+   this repository can write that file and nothing should read it.
+3. **`status: live`** — one line, *after* `bin/check-exposure logs` has been run
+   and reports the hostname gated.
+
+Doing 3 before 1 publishes an unauthenticated Grafana holding four
+applications' logs. That is the `art` failure with considerably worse contents,
+and the ordering above is the whole protection against it.
+
 ## The box's docker daemon still has no default log cap
 
 Every service in `docker-compose.prod.yml` now caps its log driver, and each

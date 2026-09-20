@@ -105,6 +105,10 @@ jobs:
           POSTGRES_DB=ci
           TUNNEL_ID=00000000-0000-0000-0000-000000000000
           CLOUDFLARED_CREDENTIALS=${GITHUB_WORKSPACE}/.ci-credentials.json
+          # Grafana's compose entry uses `:?`, so an absent value fails the
+          # whole `compose up` rather than falling back to admin/admin. That
+          # refusal is deliberate, which means CI has to supply one.
+          GRAFANA_ADMIN_PASSWORD=ci
           EOF
 
           # The step that would have caught the outage.
@@ -114,7 +118,7 @@ jobs:
           # will restart-loop; that is expected and is not what is under
           # test. A container that never started has the zero time here, and
           # that is what a bad mount produces.
-          for c in cg1618-db-1 cg1618-cloudflared-1 cg1618-apex-1; do
+          for c in cg1618-db-1 cg1618-cloudflared-1 cg1618-apex-1 cg1618-loki-1 cg1618-alloy-1 cg1618-grafana-1; do
             started="$(docker inspect -f '{{.State.StartedAt}}' "$c")"
             echo "${c} started at ${started}"
             case "${started}" in
@@ -138,6 +142,54 @@ jobs:
             sleep 3
           done
           [ "${status}" = "healthy" ]
+
+      # Started is not enough for these two: a Loki with a schema it cannot
+      # query accepts writes and comes up healthy, and a Grafana whose
+      # provisioned datasource is malformed serves its UI perfectly while
+      # every dashboard is empty. Both failures reach the box looking fine.
+      - name: Prove Loki answers and Grafana found its datasource
+        run: |
+          set -euo pipefail
+
+          for _ in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-loki-1)"
+            [ "${status}" = "healthy" ] && break
+            echo "loki: ${status}"
+            sleep 3
+          done
+          [ "${status}" = "healthy" ]
+
+          for _ in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' cg1618-grafana-1)"
+            [ "${status}" = "healthy" ] && break
+            echo "grafana: ${status}"
+            sleep 3
+          done
+          [ "${status}" = "healthy" ]
+
+          # The provisioned datasource, read back from Grafana's own API. A
+          # datasource file that failed to parse leaves Grafana running and
+          # healthy with no datasource at all, saying so only in its log.
+          #
+          # An Authorization header rather than http://admin:ci@host/ - the
+          # image ships busybox wget, whose handling of userinfo in a URL
+          # varies by build, and a probe that fails for its own reasons is
+          # worse than no probe.
+          GF=(docker compose -f docker-compose.prod.yml exec -T grafana)
+          "${GF[@]}" wget -q -O - --header 'Authorization: Basic YWRtaW46Y2k=' 'http://127.0.0.1:8008/api/datasources' > /tmp/ds.json
+          cat /tmp/ds.json
+          grep -q '"type":"loki"' /tmp/ds.json
+
+          # End to end: Alloy read the docker socket, pushed to Loki, and Loki
+          # can answer a query about it. Nothing above proves the middle of
+          # that - both containers are healthy whether or not anything flows.
+          for _ in $(seq 1 30); do
+            labels="$(docker compose -f docker-compose.prod.yml exec -T loki wget -q -O - 'http://127.0.0.1:3100/loki/api/v1/labels' || true)"
+            echo "labels: ${labels}"
+            echo "${labels}" | grep -q '"container"' && break
+            sleep 3
+          done
+          echo "${labels}" | grep -q '"container"'
 
       - name: Tear the stack down
         if: always()

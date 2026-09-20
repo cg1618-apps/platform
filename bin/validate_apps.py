@@ -13,8 +13,14 @@ express by restating the entry. What it protects lives elsewhere too - bin/deplo
 refuses when this list and the app's own deploy/gated-paths disagree, and
 bin/check-exposure probes each path from the open internet.
 
-`migrations` needs no rule here - it is per-entry and boolean, so the schema's
-`required` list is the whole check. It is listed in this docstring anyway
+`repo: null` needs a rule here for the same reason as the others: what it
+implies about `migrations`, `database` and `path` is a relationship between
+fields of one entry, which a schema can only express by restating the entry.
+Null means the service lives in this repository - the log collector - and so
+is reserved and probed but never deployed or provisioned.
+
+`migrations` needs no rule of its own here - it is per-entry and boolean, so
+the schema's `required` list is the whole check. It is listed in this docstring anyway
 because the thing it protects is not in this file: bin/deploy and bin/rollback
 read it, and an app declaring `true` with no executable deploy/migrations is
 refused there rather than deployed with no approval gate.
@@ -101,11 +107,38 @@ def validate(registry: dict) -> list[str]:
                 f"so this port is one a worktree may already be using"
             )
 
-        expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
-        if a["repo"] != expected_repo:
-            problems.append(
-                f"{a['name']} names repository {a['repo']!r}, expected {expected_repo!r}"
-            )
+        # `repo: null` means the service lives in THIS repository rather than
+        # in one of its own - the log collector is the case it was added for.
+        # Such an entry is here to reserve a hostname and a port and to be
+        # probed by bin/check-exposure, not to be deployed: nothing in
+        # cg1618-apps/<name> exists to deploy, and bin/deploy is only ever
+        # called by an app's own workflow, which a platform service has none
+        # of. The other two fields are refused rather than ignored so that the
+        # entry cannot quietly claim a gate nothing will ever operate.
+        if a["repo"] is None:
+            if a["migrations"]:
+                problems.append(
+                    f"{a['name']} declares migrations with no repository; a "
+                    f"platform-owned service has no deploy/migrations hook and "
+                    f"nothing would ever run one"
+                )
+            if a["database"] is not None:
+                problems.append(
+                    f"{a['name']} declares database {a['database']!r} with no "
+                    f"repository; bin/provision reads the registry's repo to "
+                    f"find the checkout, so it cannot provision this entry"
+                )
+            if "path" in a:
+                problems.append(
+                    f"{a['name']} declares a checkout path with no repository; "
+                    f"there is nothing to check out"
+                )
+        else:
+            expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
+            if a["repo"] != expected_repo:
+                problems.append(
+                    f"{a['name']} names repository {a['repo']!r}, expected {expected_repo!r}"
+                )
 
     return problems
 

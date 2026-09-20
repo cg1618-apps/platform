@@ -240,3 +240,27 @@ def test_an_empty_gated_paths_is_rejected(schema):
     # is present and empty reads as a declaration and probes nothing.
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=_entry(gated_paths=[]), schema=schema)
+
+
+def test_no_repository_is_legal(schema):
+    """`repo: null` means the service lives in the platform repository.
+
+    Same shape as `database: null` above: the value must survive the string
+    pattern rather than being checked against it. What null then implies about
+    `migrations`, `database` and `path` is relational and lives in
+    bin/validate_apps.py, which a schema cannot express.
+    """
+    jsonschema.validate(instance={"apps": [entry(repo=None)]}, schema=schema)
+
+
+def test_a_repository_that_is_present_is_still_pattern_checked(schema):
+    """The mirror. Allowing null must not have disabled the pattern.
+
+    Without this, changing `repo` to accept anything at all would pass the
+    test above and every other test in this file.
+    """
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance={"apps": [entry(repo="https://github.com/cg1618-apps/media")]},
+            schema=schema,
+        )

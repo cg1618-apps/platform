@@ -47,7 +47,10 @@
             "pattern": "^[a-z][a-z0-9_]*$"
           },
           "repo": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^git@github\\.com:cg1618-apps/[a-z0-9-]+\\.git$"
           },
           "exposure": {

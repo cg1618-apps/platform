@@ -217,49 +217,6 @@ keyed on the redirect does not notice it at all.
 
 Small to build, and it belongs in the same loop that probes the prefixes.
 
-## The box's docker daemon still has no default log cap
-
-Every service in `docker-compose.prod.yml` caps its log driver, and so does
-each app's. Neither covers anything started **outside** a compose file — a
-one-off `docker run`, a container the Actions runner leaves behind, whatever a
-session starts by hand while debugging. Those take the daemon default, and the
-box has no `/etc/docker/daemon.json` at all, so that default is still
-`json-file` with no `max-size`.
-
-**It is a small hole and it needs root, which is the only reason it is still
-here.** The long-lived containers are all in compose files. What this catches
-is the container nobody wrote a compose file for, which is also the one nobody
-will think to check.
-
-The platform sessions reach the box over SSH without passwordless `sudo` —
-confirmed, `sudo -n true` answers *"interactive authentication is required"* —
-so this is the owner's to run, in one paste:
-
-```bash
-ssh homelab
-sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
-{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
-EOF
-sudo systemctl restart docker
-```
-
-**The restart bounces every container on the box**, which is why it wants a
-deliberate moment rather than being folded into something else. Every service
-is `restart: unless-stopped`, so they all come back on their own; the
-interruption is seconds, and it is the same shape as the one the first
-observability release caused.
-
-Afterwards, this confirms it without needing root:
-
-```bash
-docker info --format '{{.LoggingDriver}}'          # json-file
-docker run --rm alpine:3 true                       # a container from outside compose
-docker inspect --format '{{json .HostConfig.LogConfig}}' <any container started since>
-```
-
-It does **not** make the per-service blocks redundant. The daemon default is
-not in this repository, where a diff would show it changing.
-
 ## `bin/rollback` names a document three apps do not have
 
 Tier 3 freezes and tells the operator:

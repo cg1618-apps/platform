@@ -46,6 +46,8 @@ them and does not contain them.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
 - `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and the
   contract an app joins them on.
+- `docs/logging.md` — what every app's logging must emit, and where it is
+  read. The app's obligation ends at stdout; the box aggregates.
 - Each app is cloned **inside** this directory and ignored by it, so the two
   histories never meet. A session working on infrastructure runs from here; a
   session working on one app runs from that app's directory.

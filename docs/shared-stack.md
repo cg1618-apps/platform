@@ -128,6 +128,9 @@ container starts, which is a failure that reaches the box rather than CI.
 `tests/test_deploy.py` asserts that every service declares it, so a service
 added later cannot inherit the unbounded default by omission.
 
+The cap is the docker half. What an app puts *into* the stream — JSON lines,
+the field names, the request id — is [logging.md](logging.md).
+
 **This covers this compose file only, and each app's covers its own.** What is
 covered by neither is anything started outside a compose file — a one-off
 `docker run`, the Actions runner, whatever a later session starts by hand.

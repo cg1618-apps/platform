@@ -229,8 +229,18 @@ Once it is live, the search that answers most questions is the request id from
 {compose_project=~".+"} | json | request_id = "<the id>"
 ```
 
-and the labels Alloy attaches are `container`, `compose_project`,
-`compose_service` and `job="docker"`.
+The label set, read back from a running Loki rather than from the Alloy config:
+
+```
+compose_project  compose_service  container  job  service_name
+```
+
+`container`, `compose_project` and `compose_service` are the ones
+`observability/alloy/config.alloy` attaches, and `job` is `"docker"`.
+**`service_name` is added by Loki itself**, not by Alloy — Loki 3 derives it
+from the stream's labels when none is supplied, so it appears in a label query
+and in nothing this repository wrote. Worth knowing before somebody goes
+looking for where it is set.
 
 ## Who conforms today
 

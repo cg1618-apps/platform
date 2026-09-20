@@ -303,8 +303,8 @@ those other services must never start on a laptop:
   share of real production traffic would begin arriving at the laptop and be
   answered by whatever it happened to be serving. Nothing announces it; both
   containers look healthy.
-- **`db` would bind 5432** against `anime_site_postgres_db`, which every app's
-  `dev.ps1` starts and every app's tests use.
+- **`db` would bind 5432** against `cg1618-dev-db`, the development database
+  every app's `dev.ps1` starts and every app's tests use.
 
 `tests/test_dev_logs.py` asserts both absences, that the project name is pinned
 to `cg1618-dev-logs` so a `docker compose -f docker-compose.prod.yml down` in

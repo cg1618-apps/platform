@@ -111,6 +111,7 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
       - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - dev_grafana_data:/var/lib/grafana
     ports:
       # 8008 is what apps.yml reserves for `logs`, so the local port matches the

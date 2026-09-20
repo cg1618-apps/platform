@@ -9,6 +9,7 @@ configuration would diverge from the box's, and the copy that diverged would be
 the one nobody reads until a query behaves differently in production.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -93,14 +94,20 @@ def test_nothing_is_published_beyond_loopback(dev):
         assert str(port).startswith("127.0.0.1:"), port
 
 
-def observability_mounts(compose: dict) -> dict[str, str]:
-    """{service: the ./observability source it mounts}, for services that do."""
-    found = {}
+def observability_mounts(compose: dict) -> dict[str, list[str]]:
+    """{service: every ./observability source it mounts}, sorted.
+
+    A list rather than one string. Grafana mounts two of these - datasources and
+    dashboards - and a dict holding only the last one would compare the two
+    compose files while silently ignoring the first, which is exactly the kind
+    of check that looks thorough and asserts half of what it claims.
+    """
+    found: dict[str, list[str]] = {}
     for name, service in compose["services"].items():
         for volume in service.get("volumes", []):
             if str(volume).startswith("./observability/"):
-                found[name] = str(volume)
-    return found
+                found.setdefault(name, []).append(str(volume))
+    return {name: sorted(mounts) for name, mounts in found.items()}
 
 
 def test_it_mounts_the_same_configuration_the_box_runs(dev, prod):
@@ -219,3 +226,72 @@ def test_the_one_click_wrapper_exists_and_only_delegates():
     # Held open on failure: launched from Explorer the window closes instantly
     # and takes the only explanation with it.
     assert "pause" in body
+
+
+# --- provisioned datasource and dashboards ----------------------------------
+
+DATASOURCES = ROOT / "observability" / "grafana" / "datasources"
+DASHBOARDS = ROOT / "observability" / "grafana" / "dashboards"
+
+
+def test_the_datasource_uid_is_pinned():
+    """Otherwise Grafana generates one per instance.
+
+    A provisioned dashboard names its datasource by uid. Unpinned, the uid on
+    the laptop and the uid on the box differ, so the same dashboard file works
+    in one place and fails in the other with "datasource not found" - which
+    reads as a broken dashboard rather than a broken reference.
+    """
+    loki = yaml.safe_load((DATASOURCES / "loki.yml").read_text(encoding="utf-8"))
+    assert loki["datasources"][0]["uid"] == "loki"
+
+
+def test_there_is_a_dashboard_provider():
+    provider = yaml.safe_load((DASHBOARDS / "dashboards.yml").read_text(encoding="utf-8"))
+    entry = provider["providers"][0]
+    assert entry["type"] == "file"
+    assert entry["options"]["path"] == "/etc/grafana/provisioning/dashboards"
+    # Read-only in the UI: a dashboard is a question worth keeping, and one
+    # edited in the browser lives only in that Grafana's database.
+    assert entry["allowUiUpdates"] is False
+
+
+def loki_uids(node, found: set[str]) -> set[str]:
+    """Every datasource uid a dashboard names, however deeply nested.
+
+    Defined at module level rather than inside the loop below: a closure over a
+    per-iteration variable is the B023 bug ruff refuses, and it would have made
+    every dashboard after the first assert against the first one's set.
+    """
+    if isinstance(node, dict):
+        if node.get("type") == "loki" and "uid" in node:
+            found.add(node["uid"])
+        for value in node.values():
+            loki_uids(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            loki_uids(value, found)
+    return found
+
+
+def test_every_dashboard_references_the_pinned_datasource():
+    """A dashboard naming any other uid renders empty panels on the other machine."""
+    dashboards = sorted(DASHBOARDS.glob("*.json"))
+    assert dashboards, "no dashboards at all - this test would pass vacuously"
+    for path in dashboards:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+        uids = loki_uids(blob, set())
+        assert uids == {"loki"}, f"{path.name} references {uids}"
+
+
+def test_every_dashboard_panel_has_a_description():
+    """A panel whose title is its only explanation is a panel nobody trusts.
+
+    The descriptions are where "what is this actually counting" lives - including
+    that the error panels are a TEXT match today and over-count.
+    """
+    for path in sorted(DASHBOARDS.glob("*.json")):
+        blob = json.loads(path.read_text(encoding="utf-8"))
+        assert blob["panels"], f"{path.name} has no panels"
+        for panel in blob["panels"]:
+            assert panel.get("description", "").strip(), f"{path.name}: {panel['title']}"

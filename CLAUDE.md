@@ -48,6 +48,8 @@ them and does not contain them.
   contract an app joins them on.
 - `docs/logging.md` — what every app's logging must emit, and where it is
   read. The app's obligation ends at stdout; the box aggregates.
+- `docs/observability.md` — the collector and the Box overview dashboard:
+  what each panel means, what to look for, and how to run it locally.
 - Each app is cloned **inside** this directory and ignored by it, so the two
   histories never meet. A session working on infrastructure runs from here; a
   session working on one app runs from that app's directory.

@@ -10,6 +10,31 @@ Put a rule there when it names a framework, a command, a table or a file that
 only that app has; put it here when it would be just as true of an app written
 in something else.
 
+## Terminology: "project" and "app"
+
+These two words are not interchangeable here, and the owner uses them
+precisely.
+
+- **"project"** means the **whole platform** — this repository, all four
+  applications and the shared stack they run on, taken together. "the
+  project's conventions", "across the project", "does the project have X"
+  are all statements about the integrated whole, not about any one
+  application.
+- **"app"** means **one** of the applications — `media`, `food`, `travel`,
+  `art`. It is the unit that has its own repository, its own `CLAUDE.md`, its
+  own database and its own row in `apps.yml`.
+
+So "the project" is the thing this repository is the master of, and "an app"
+is one of the things it registers. A request phrased with "project" is
+platform-wide by default and probably belongs in a manager session; one
+phrased with "app" is bounded to that app's repository. Where a request is
+genuinely ambiguous — the word could be read either way and the two readings
+mean different work — ask which is meant rather than picking the smaller
+scope and delivering half of it.
+
+This file's own prose predates the distinction in places and uses
+"application" for what is here called an app; read the two as the same thing.
+
 ## What this repository is
 
 The master repository for the box. It owns `apps.yml` — the registry every

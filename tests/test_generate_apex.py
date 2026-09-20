@@ -64,7 +64,11 @@ def test_a_planned_app_is_listed_but_not_linked():
     assert "food" in page
     assert "planned" in page
     assert 'href="https://food.cg1618.com"' not in page
-    assert "href=" not in page
+    # Any hostname link, not just food's - the point is that a planned app is
+    # linked NOWHERE, so a renamed hostname cannot slip past the line above.
+    # Narrower than a bare `"href=" not in page`, which the head's own favicon
+    # links would now trip regardless of what the app row renders.
+    assert 'href="https://' not in page
 
 
 def test_html_in_a_description_is_escaped():

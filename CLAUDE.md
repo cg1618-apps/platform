@@ -48,6 +48,8 @@ them and does not contain them.
   contract an app joins them on.
 - `docs/logging.md` — what every app's logging must emit, and where it is
   read. The app's obligation ends at stdout; the box aggregates.
+- `docs/observability.md` — the collector and the Box overview dashboard:
+  what each panel means, what to look for, and how to run it locally.
 - Each app is cloned **inside** this directory and ignored by it, so the two
   histories never meet. A session working on infrastructure runs from here; a
   session working on one app runs from that app's directory.
@@ -283,13 +285,23 @@ destroys nothing yet looks exactly like data loss.
 
 What such a setup has to cover, whatever the app:
 
-- **Pin the compose project.** Compose derives the project name from the
-  directory and **prefixes volume names with it**, so a worktree silently mounts
-  a brand-new EMPTY database on the same port while the real data sits untouched
-  in the original volume — and the app cheerfully creates a schema and seeds a
-  fresh admin in it. Set `COMPOSE_PROJECT_NAME` explicitly in the worktree's
-  `.env`, to the same value the main tree uses. This is the single most
-  expensive thing to get wrong here, because it reads as data loss and is not.
+- **The compose-project trap is closed, and it is worth knowing why it existed.**
+  Compose derives a project name from the **directory** and **prefixes volume
+  names with it**, so a worktree used to silently mount a brand-new EMPTY
+  database on the same port while the real data sat untouched in the original
+  volume — and the app would cheerfully create a schema and seed a fresh admin
+  in it. It read as data loss and was not.
+
+  **No app owns a database compose file any more.** The development PostgreSQL
+  is the platform's — `docker-compose.dev-db.yml`, project `cg1618-dev-db`,
+  volume `cg1618_dev_pgdata` — and both of the platform's development compose
+  files pin `name:` and an explicit volume name for exactly this reason. A
+  worktree therefore cannot conjure a second database by existing.
+
+  What you still must not do is set `COMPOSE_PROJECT_NAME` to something new in a
+  worktree's `.env` and then run a compose file that does not pin its own names.
+  The mechanism has not gone away; nothing in these repositories exposes you to
+  it any longer.
 - **Copy the per-machine files in** (`.env`, any credentials file) and **rebuild
   anything that records absolute paths** — a virtual environment cannot be
   copied, and `node_modules` needs its own install.

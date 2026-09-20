@@ -227,6 +227,51 @@ knowledge. That costs nothing real — every hostname with a Cloudflare
 certificate is already in the public Certificate Transparency logs, so hiding
 it from the apex page would have hidden it from nobody.
 
+## The development database belongs to the platform
+
+One PostgreSQL on each development machine, holding one database per app, in
+`docker-compose.dev-db.yml` **here** rather than in an application's compose
+file. Container `cg1618-dev-db`, volume `cg1618_dev_pgdata`.
+
+It began as `anime_site_postgres_db` in **media's** compose project, because
+media was the only app. The misleading name is what gets noticed - three apps
+started a container named after a fourth, and after the repository was renamed
+the name pointed at nothing that existed. **The name was the smaller half.**
+
+The real defect was ownership, and it had already cost a morning. On
+2026-09-19 the shared container vanished from a development machine and was
+reported as unexplained. `docker events` held the sequence - `kill`, `stop`,
+`die`, `destroy` in one second, with the volume unmounted rather than removed,
+which is the signature of `docker compose down` rather than a crash. The cause
+was that the container belonged to media's project, so a `down` in any media
+tree removed the database every other app was using. No data was lost, because
+`down` without `-v` does not touch a named volume, and the whole thing read as
+data loss for a minute and a half.
+
+A compose project of its own removes the mechanism rather than warning about
+it. Nothing an app runs can adopt, recreate or destroy the server, because it
+is not in any app's project.
+
+**The trade that was considered and not taken: a container per app.** It would
+have answered the same instinct - one app going down should not drag the others
+- but that instinct is already satisfied by the move, since apps are isolated
+by database and no app's compose can reach the server. What per-app containers
+would actually buy is **parallel test runs**: the machine-wide pytest lock
+exists only because four apps share one server. What they cost is a port and a
+postgres process per app, development diverging from production, and a lock
+that must become per-app in the same instant across five repositories - and if
+it does not, two sessions take different locks and run pytest concurrently,
+which is precisely what the lock prevents. Worth doing on its own merits one
+day, not worth smuggling into a move.
+
+**Production is untouched and was never wrong.** `cg1618-db-1` in
+`cg1618_pgdata` has always belonged to the platform. Two `anime_site` names do
+survive there and are deliberately left: media's live database is still called
+`anime_site_db`, which `apps.yml` already says is not renamed by editing that
+line, and media's checkout on the box is still `~/anime_site`. Renaming the
+database costs downtime and a dump on the one app that is actually used; that
+is a maintenance window's work, not a tidy-up.
+
 ## `media` is the reference because it is read, not because it is right
 
 "House style" names `media` the reference implementation the other three copy

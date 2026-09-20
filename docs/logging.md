@@ -195,216 +195,12 @@ That cap bounds a buffer. It is not where logs are read from and it is not
 retention — recreating a container discards its log entirely, which happens on
 every deploy.
 
-## Where this is read
+## Where this ends up
 
-**Defined and CI-verified; not serving yet.** `docker-compose.prod.yml` in
-this repository runs Loki, Alloy and Grafana, and every pull request starts
-them, pushes real container output through them and asserts Loki can answer a
-query about it. What has not happened is the last step:
-`logs.cg1618.com` is `status: planned` in `apps.yml`, so the tunnel routes
-nothing to it.
-
-Until it is live, production output is `docker logs` over SSH, per container,
-from the manager session — and nothing survives a deploy. The stack itself runs
-on a development machine today and is worth exploring there first; see
-[Viewing it locally](#viewing-it-locally) below.
-
-Three things stand between here and live, and each is the owner's:
-
-1. **A Cloudflare Access application covering `logs.cg1618.com`**, and its DNS
-   record. Dashboard work, and the only step that makes the gate real.
-2. **`GRAFANA_ADMIN_PASSWORD` in the box's platform `.env`.** The compose entry
-   uses `:?`, so the stack refuses to start without it rather than falling back
-   to `admin`/`admin`.
-3. **Then `status: live`**, one line, after `bin/check-exposure logs` has been
-   run and has said the hostname is gated. In that order — `live` first would
-   publish an unauthenticated Grafana holding four applications' logs, which is
-   the `art` failure with worse contents.
-
-The box has the headroom, measured on 2026-09-20 rather than estimated: 14.0 GB
-of 15.2 GB RAM available, 80 GB of 98 GB disk free, all seven containers then
-running under 550 MB together. The three new ones are expected around
-400–500 MB.
-
-Once it is live, the search that answers most questions is the request id from
-[Request IDs](#request-ids) above:
-
-```logql
-{compose_project=~".+"} | json | request_id = "<the id>"
-```
-
-The label set, read back from a running Loki rather than from the Alloy config:
-
-```
-compose_project  compose_service  container  job  service_name
-```
-
-`container`, `compose_project` and `compose_service` are the ones
-`observability/alloy/config.alloy` attaches, and `job` is `"docker"`.
-**`service_name` is added by Loki itself**, not by Alloy — Loki 3 derives it
-from the stream's labels when none is supplied, so it appears in a label query
-and in nothing this repository wrote. Worth knowing before somebody goes
-looking for where it is set.
-
-**The `app` field and the `container` label are supposed to disagree, and
-neither is wrong.** `media` emits `app="media"` — the registry name, per [Two
-formats](#two-formats-chosen-by-environment) — while its container is
-`media-app-1` and the label derived from it says so. One is what the
-application calls itself, the other is what docker calls the process; they
-differ by the `-app-1` suffix and by nothing else.
-
-That is worth a sentence because the obvious tidying is wrong in both
-directions. Deriving `app` from the container name would make it empty for
-anything not in a container. Relabelling the container to match would break
-the `<name>-app` network alias the generated ingress routes to, and the
-hostname would answer 502 while both files still read correctly on their own.
-Query by the label; read `app` off a line that arrived without one.
-
-## Viewing it locally
-
-**Double-click `dev.cmd`.** That is the whole thing: it brings up Loki, Alloy
-and Grafana, waits for both to answer, and opens Grafana in a browser.
-
-```
-dev.cmd            start, and open Grafana
-dev.cmd -Down      stop; local history is kept
-dev.cmd -Clean     stop and discard the local volumes too
-```
-
-`dev.cmd` is a wrapper holding no logic of its own. It exists because Explorer
-runs a `.cmd` on a double-click and will not run a `.ps1`, and because an
-unsigned script needs `-ExecutionPolicy Bypass`. Everything it does is in
-`dev-logs.ps1`, which you can call directly with the same switches.
-
-**There is no login.** The local Grafana runs with anonymous access at the
-`Admin` role, so the page opens straight into Explore. `admin` / `admin` still
-works if you want to sign in as a real user.
-
-Grafana is on **http://127.0.0.1:8008/** with Loki already provisioned as the
-default datasource. Loki's own API is on `127.0.0.1:3100` if you would rather
-`curl` it — `/loki/api/v1/labels` is the quickest check that anything is
-arriving.
-
-**Anonymous access is local-only and must stay that way.** It is safe here
-because both ports bind `127.0.0.1`, so "anyone" means "a process on this
-machine". On the box it would mean Cloudflare Access is the only gate on every
-application's logs — and the failure this box has actually had is a DNS record
-reaching it with no Access application behind it.
-`tests/test_dev_logs.py` asserts production has neither anonymous key, and that
-its admin password still uses `:?` rather than a default. A comment saying "do
-not copy this line" does not fail a pull request; that test does.
-
-`docker-compose.dev-logs.yml` runs Loki, Alloy and Grafana and **nothing else**.
-It is a separate file rather than a profile on the production one because two of
-those other services must never start on a laptop:
-
-- **`cloudflared` would connect a second tunnel with the box's credentials.**
-  Cloudflare load-balances a tunnel's connections across its replicas, so a
-  share of real production traffic would begin arriving at the laptop and be
-  answered by whatever it happened to be serving. Nothing announces it; both
-  containers look healthy.
-- **`db` would bind 5432** against `anime_site_postgres_db`, which every app's
-  `dev.ps1` starts and every app's tests use.
-
-`tests/test_dev_logs.py` asserts both absences, that the project name is pinned
-to `cg1618-dev-logs` so a `docker compose -f docker-compose.prod.yml down` in
-this directory cannot delete the local stack, that nothing is published beyond
-loopback, and that the Loki, Alloy and Grafana configs mounted are **the same
-files the box runs** rather than a second copy that would drift.
-
-### What it will not show you, and why
-
-**Your four applications are not in it.** Alloy discovers containers through the
-docker socket, and in development the apps run as uvicorn processes started by
-`dev.ps1` — not containers. There is nothing of theirs for Alloy to tail.
-
-**And there would be nothing structured to look at if there were.** The contract
-above selects the plain human format whenever `is_development` is true, which is
-the right call: a terminal is better at reading a sentence than Grafana is, and
-`jq` on your own dev output is a chore nobody should have. Structured logging
-earns its keep in production, across four apps, behind one tunnel.
-
-So locally you get every *container* on the machine — the shared PostgreSQL,
-and the collector's own three, which is enough to learn LogQL and confirm the
-stack works end to end.
-
-### If you do want real application lines locally
-
-Run one app the way production runs it, in its own container, which makes it
-visible to Alloy and puts it in production format:
-
-```powershell
-cd food
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-That needs the app's `.env` and the `cg1618` network, and it is a rehearsal of
-the deploy rather than a way to develop. It is worth doing once, before the
-collector goes live on the box, to see what the real stream looks like.
-
-### Reading production
-
-Not yet possible. `logs.cg1618.com` is `status: planned`, so the tunnel routes
-nothing to it, and the three steps that change that are in
-[open-items.md](open-items.md). Until then production output is `docker logs`
-over SSH, per container, and nothing survives a deploy.
-
-## The dashboard, and the four standing questions
-
-`logs.cg1618.com` opens on **Dashboards → cg1618 → Box overview**. It exists so
-the recurring questions are already asked; Explore is for the ones that are not.
-
-It is **provisioned from files** — `observability/grafana/dashboards/` in this
-repository — for the same reason the datasource is. A dashboard built in the UI
-lives in Grafana's own database, survives a restart but not a rebuild, and
-nothing here would say it ever existed. The cost is that it is read-only in the
-browser: changing it means editing the JSON and landing it like any other
-change, which is the intent.
-
-The four questions, and the panel that answers each:
-
-| Question | Panel | What a bad answer looks like |
-| --- | --- | --- |
-| How much is happening? | *Lines, selected range* and *Log volume by container* | a step change with no deploy behind it |
-| How much of it is wrong? | *Error-ish lines* and *by container* | the **shape** changing, not the absolute number |
-| Is everything still alive? | *Containers reporting* | a **drop**; a container that stops logging usually stopped |
-| What happened to this one request? | *Find one request* | — |
-
-**The error panels are a text match and they over-count.** They look for
-`error|exception|traceback|critical` case-insensitively anywhere in the line, so
-a URL containing the word counts, and Grafana's own structured logging inflates
-it considerably. That is stated in each panel's description rather than left to
-be discovered. Once every app is releasing JSON the honest version is
-`| json | level=~"ERROR|CRITICAL"`, and the panels should change then.
-
-`Containers reporting` is the one to actually watch. The box runs ten
-containers; a number below that is a real signal and needs no interpretation.
-
-### The three variables at the top
-
-`Container` drives the drill-down panel and is populated from Loki, so a new
-app appears there without editing anything. `Search` is a substring filter for
-that panel. `Request ID` takes a value pasted from an `X-Request-ID` response
-header.
-
-All three are **blank-safe**: an empty Loki line filter is a no-op rather than
-an error, so a blank box means "no filter" rather than "no results". The
-consequence is that *Find one request* shows everything until you paste
-something into it, which is not a bug.
-
-### The datasource uid is pinned, and that is load-bearing
-
-`observability/grafana/datasources/loki.yml` sets `uid: loki`. Without it
-Grafana generates one per instance, and a dashboard file that works on a laptop
-fails on the box with "datasource not found" — which reads as a broken
-dashboard rather than a broken reference.
-
-The file also carries a `deleteDatasources` block, and it is not redundant.
-Pinning a uid on a Grafana that already had the datasource under a generated
-one makes provisioning look it up by the **new** uid, fail, and take the entire
-provisioning module down at boot — Grafana does not start. That was measured on
-the development stack, not predicted, and it would have happened identically on
-the box. Deleting by name first makes the file the whole truth.
+Every line goes to the collector on the box and is searchable at
+`logs.cg1618.com`. Reading it — the dashboard, what each panel means, the
+queries worth knowing, and how to run the whole stack on a development machine
+— is [observability.md](observability.md).
 
 ## Who conforms today
 
@@ -418,10 +214,21 @@ just a wish.
 | `travel` | yes | yes | yes | yes | yes |
 | `art` | yes | yes | yes | yes | yes |
 
-**All four, on each app's `dev`.** None of it is on any app's `main`, so
-nothing is emitting this in production yet — and the collector is not serving
-either, so there is currently nowhere for it to go. Both of those are release
-decisions rather than gaps in the contract.
+**All four satisfy the contract in code.** What differs is what has been
+*released*, and that is the column to check when a query behaves oddly:
+
+| App | Emitting JSON in production? |
+| --- | --- |
+| `food` | **yes** — released 2026-09-20 |
+| `media` | not yet; `main` still has the old behaviour |
+| `travel` | not yet |
+| `art` | not yet |
+
+An app that has not been released still reaches the collector — Alloy tails
+every container whatever the format — but its lines are plain text, so
+`| json` produces `__error__="JSONParserErr"` against them and any query
+filtering on `level` silently matches none of them. That is the one way this
+table matters day to day.
 
 ### The order they arrived in, which is not the usual one
 

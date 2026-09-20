@@ -143,50 +143,6 @@ precedent set by accident is the thing "House style" was written against.
 
 Raised by the session that wrote #48, against its own change.
 
-## Two calls in the deploy gate have never been executed
-
-The migration-approval gate is built and merged, and two of its API calls are
-still reasoning from documentation rather than observation. Neither has run
-once:
-
-- **`verify-gate` reads `GET repos/{owner}/{repo}/environments/production`**
-  with `permissions: contents: read` and `${{ github.token }}`, and refuses
-  unless the protection rules include `required_reviewers`. That this token
-  and that scope can read the environments endpoint on a public repository is
-  from the documentation. If it cannot, the job fails closed — which is the
-  right direction, but it fails at the moment somebody is waiting on a
-  migration deploy, and the error will look like a gate misconfiguration
-  rather than a permissions one.
-- **`bin/provision` arms the gate with `gh api -X PUT
-  repos/<slug>/environments/production`**, needing a token that administers
-  the app repository. It has never been run against a repository whose
-  environment was not already armed. This one fails visibly: the `else` branch
-  prints the exact command for a machine that is logged in, and provisioning
-  continues, because by then the role, the database and the `.env` are
-  written.
-
-**The first migration deploy of any app exercises both**, and that is the only
-thing that will. Nothing before it does: the gate is skipped entirely when
-`classify` finds no migration, so every deploy so far has gone down the
-ungated lane and proven nothing about this one.
-
-**That first deploy is already on the way, and nobody scheduled it as a
-test.** `travel` has `alembic/versions/0002_packing.py` on `feat/packing-lists`
-and `food` has its ingredients revision on `feat/ingredients`; `origin/main`
-holds only the baseline in both. So whichever of those two releases first is
-the run that exercises these calls, and it exercises them during a release
-rather than a rehearsal.
-
-Not blocking. Worth knowing before the first migration goes out rather than
-during it, and worth doing deliberately — arm an app's environment with
-`bin/provision` on a repository that has none, and watch the first gated
-deploy rather than discovering it under a release.
-
-Recovered from a working report left by the step-4 deploy-pipeline round,
-which was never in git and has been deleted. Its two other unverified claims —
-SC2088 on the `bin/` scripts and the workflow parsing under `actionlint` — are
-closed: `ci.yml` runs both on every pull request and has been green since.
-
 ## `art`'s first hand-named migration, and why three baselines are not evidence
 
 `CLAUDE.md`'s "House style" already settles this — migration naming is one of
@@ -261,108 +217,48 @@ keyed on the redirect does not notice it at all.
 
 Small to build, and it belongs in the same loop that probes the prefixes.
 
-## `docker compose down` in any media tree destroys the shared database container
-
-On 2026-09-19 the shared PostgreSQL container vanished from the home machine
-and was reported as unexplained. It was not unexplained, and it was not a
-crash. `docker events` holds the sequence:
-
-```
-22:37:03  kill → stop → die → destroy   anime_site_postgres_db
-22:37:03  unmount                       anime_site_postgres_anime_data
-22:38:47  create → start                anime_site_postgres_db
-22:38:47  mount                         anime_site_postgres_anime_data
-```
-
-`kill`, `stop`, `die`, `destroy` in one second, with the volume **unmounted
-rather than removed**, is the signature of `docker compose down` (or
-`docker rm -f`). A crash gives `die` alone and leaves the container in
-`docker ps -a`. The 104-second gap is the recovery, and no data was lost
-because `down` without `-v` never touches the named volume.
-
-**The trap is that the rule protecting the data creates this.** "Git Worktrees"
-in `CLAUDE.md` says to pin `COMPOSE_PROJECT_NAME` to the same value the main
-tree uses, so a worktree mounts the real volume instead of silently creating an
-empty one. That is correct and it must stay. Its consequence is that **every
-media worktree is in the same compose project**, so `docker compose down` in
-any of them removes the container every other tree and every other app is
-using. The project name is what makes the volume shared; it is equally what
-makes the container shared.
-
-`media/docker-compose.yml` also pins `container_name: anime_site_postgres_db`,
-so the name is global regardless of project — which turns the other direction
-of this mistake into a loud "container name already in use" rather than a
-second database.
-
-Nothing enforces this. What would:
-
-- **A rule, which costs nothing:** in a tree that shares the project name, stop
-  the database with `docker compose stop db`, never `down`. `stop` leaves the
-  container to be started again; `down` removes it for everybody.
-- **On the box this is worse and the same command does it.** `~/cg1618` runs
-  the shared PostgreSQL and the tunnel for all four apps, and a `down` there
-  takes production's database out from under every one of them, with nobody
-  sitting in front of it. `bin/deploy` does not do this, and no script should
-  gain it without a deliberate decision.
-
-Not urgent on a development machine, where the recovery is one `up -d` and the
-volume survives. Recorded because the same keystroke on the box has a different
-blast radius, and because the reason it is easy to get wrong is a rule this
-repository correctly insists on.
-
-## `logs.cg1618.com` is registered and planned, and three things make it live
-
-Loki, Alloy and Grafana are in `docker-compose.prod.yml` and CI starts them,
-pushes real container output through them and asserts Loki answers a query
-about it. The registry entry is `status: planned`, so the tunnel routes
-nothing and nothing is exposed.
-
-All three remaining steps need the owner, and **the order is not
-interchangeable**:
-
-1. **The Cloudflare Access application covering `logs.cg1618.com`**, plus its
-   DNS record. Dashboard work; the only step that makes the gate real.
-2. **`GRAFANA_ADMIN_PASSWORD` in the box's platform `.env`.** The compose entry
-   interpolates it with `:?`, so the whole stack refuses to start without it
-   rather than falling back to Grafana's built-in `admin`/`admin`. Nothing in
-   this repository can write that file and nothing should read it.
-3. **`status: live`** — one line, *after* `bin/check-exposure logs` has been run
-   and reports the hostname gated.
-
-Doing 3 before 1 publishes an unauthenticated Grafana holding four
-applications' logs. That is the `art` failure with considerably worse contents,
-and the ordering above is the whole protection against it.
-
 ## The box's docker daemon still has no default log cap
 
-Every service in `docker-compose.prod.yml` now caps its log driver, and each
-app's compose file is expected to do the same for its own service. Neither
-covers anything started **outside** a compose file — a one-off `docker run`, a
-container the Actions runner leaves behind, whatever a later session starts by
-hand while debugging. Those take the daemon default, and the box has no
-`/etc/docker/daemon.json` at all, so that default is still `json-file` with no
-`max-size`.
+Every service in `docker-compose.prod.yml` caps its log driver, and so does
+each app's. Neither covers anything started **outside** a compose file — a
+one-off `docker run`, a container the Actions runner leaves behind, whatever a
+session starts by hand while debugging. Those take the daemon default, and the
+box has no `/etc/docker/daemon.json` at all, so that default is still
+`json-file` with no `max-size`.
 
-It is a much smaller hole than the one that was just closed: the long-lived
-containers are all in compose files. What it catches is the container nobody
-wrote a compose file for, which is also the one nobody will think to check.
+**It is a small hole and it needs root, which is the only reason it is still
+here.** The long-lived containers are all in compose files. What this catches
+is the container nobody wrote a compose file for, which is also the one nobody
+will think to check.
+
+The platform sessions reach the box over SSH without passwordless `sudo` —
+confirmed, `sudo -n true` answers *"interactive authentication is required"* —
+so this is the owner's to run, in one paste:
 
 ```bash
-# on the box, once
-sudo tee /etc/docker/daemon.json <<'EOF'
+ssh homelab
+sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
 {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
 EOF
 sudo systemctl restart docker
 ```
 
-**The restart bounces every container on the box**, which is the only reason
-this is an open item rather than something already done. It needs a moment
-when a few seconds of every hostname 502-ing is acceptable, and it needs root —
-the platform sessions reach the box over SSH without passwordless `sudo`, so
-this is the owner's to run or to grant.
+**The restart bounces every container on the box**, which is why it wants a
+deliberate moment rather than being folded into something else. Every service
+is `restart: unless-stopped`, so they all come back on their own; the
+interruption is seconds, and it is the same shape as the one the first
+observability release caused.
 
-It does not make the per-service blocks redundant. The daemon default is not
-in this repository, where a diff would show it changing.
+Afterwards, this confirms it without needing root:
+
+```bash
+docker info --format '{{.LoggingDriver}}'          # json-file
+docker run --rm alpine:3 true                       # a container from outside compose
+docker inspect --format '{{json .HostConfig.LogConfig}}' <any container started since>
+```
+
+It does **not** make the per-service blocks redundant. The daemon default is
+not in this repository, where a diff would show it changing.
 
 ## `bin/rollback` names a document three apps do not have
 

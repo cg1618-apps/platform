@@ -10,11 +10,31 @@
 # loads `.env` from there, so this file staying at the repository root is not
 # cosmetic: moved into a subdirectory it would look for that subdirectory's
 # .env and silently interpolate every ${...} below to an empty string.
+#
+# EVERY service caps its log driver, via the `log_rotation` anchor below.
+# Docker's default json-file driver has no max-size at all: the file grows
+# until the disk is full, and on this box that is the shared PostgreSQL and
+# every hostname going down together - slowly enough that whatever gets blamed
+# will not be the cause. Both values are quoted: max-file as a YAML integer is
+# rejected at start, on the box rather than in CI.
+#
+# This covers this file's services only. Anything started outside a compose
+# file takes the daemon default, and the box has no /etc/docker/daemon.json,
+# so that default is still uncapped - see docs/shared-stack.md.
+
+# The log cap every service below takes by reference. An `x-` key is ignored
+# by compose itself, which is what makes it the place to put one.
+x-logging: &log_rotation
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   db:
     image: postgres:17
     restart: unless-stopped
+    logging: *log_rotation
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -41,6 +61,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    logging: *log_rotation
     # --no-autoupdate: the image is the unit of upgrade here, and an in-place
     # self-update would restart the tunnel outside anyone's knowledge.
     command: tunnel --no-autoupdate --config /etc/cloudflared/conf/config.yml run ${TUNNEL_ID}
@@ -74,6 +95,7 @@ services:
     # day it needs a backend it graduates to its own repo and its own entry.
     image: nginx:alpine
     restart: unless-stopped
+    logging: *log_rotation
     volumes:
       # Directories, not single files. A file bind mount pins the INODE, and
       # `git pull` replaces the file rather than writing through it - so the

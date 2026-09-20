@@ -102,6 +102,60 @@ database and role — arrive with the next step of the platform sequence. Until
 then an application's deploy script reaches this project directly, and the
 media tracker's `DB_COMPOSE` is the pattern.
 
+## Every service caps its log driver
+
+Docker's default `json-file` driver has **no size limit at all**. Nothing
+rotates it and nothing prunes it, so a container's log grows until the disk is
+full — and on this box that is the shared PostgreSQL and every hostname going
+down together, from a cause that will have been accumulating for months. It is
+the slowest failure here and so the one least likely to be attributed
+correctly.
+
+Every service in `docker-compose.prod.yml` therefore takes the `log_rotation`
+anchor:
+
+```yaml
+x-logging: &log_rotation
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+```
+
+Both values are quoted. `max-file` as a YAML integer is rejected when the
+container starts, which is a failure that reaches the box rather than CI.
+
+`tests/test_deploy.py` asserts that every service declares it, so a service
+added later cannot inherit the unbounded default by omission.
+
+**This covers this compose file only, and each app's covers its own.** What is
+covered by neither is anything started outside a compose file — a one-off
+`docker run`, the Actions runner, whatever a later session starts by hand.
+Those take the daemon default, and **the box has no `/etc/docker/daemon.json`
+at all**, so the default there is still the uncapped one. Setting it is a root
+change on the box rather than anything this repository can make true:
+
+```bash
+# on the box, once
+sudo tee /etc/docker/daemon.json <<'EOF'
+{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
+EOF
+sudo systemctl restart docker
+```
+
+That restart bounces every container, so it is done deliberately rather than
+folded into something else. It is outstanding; see `docs/open-items.md`. Note
+that it would not make the per-service blocks redundant even once done — the
+daemon default is not in this repository, where a diff would show it changing,
+and a service relying on it alone is one nobody decided about.
+
+**This bounds a buffer; it is not a retention policy.** 10 MB × 5 files is
+months of history at the rate the box currently produces — roughly 7 KB per
+hour per app container, about 1 MB a day across all seven — but a
+`docker compose up -d` that recreates a container discards that container's
+log outright, whatever its size. So the cap is protection against the disk
+filling, and nothing here is a place to look something up after a deploy.
+
 ## Bind mounts are directories, never single files
 
 Every bind mount in `docker-compose.prod.yml` names a directory. A single-file

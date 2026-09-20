@@ -15,6 +15,13 @@ and ignored by it, so the histories never meet.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
 - `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and
   the contract an app joins them on.
+- `docs/logging.md` — what every app's logging must emit, and where it is
+  read.
+- `dev.cmd` — double-click it. Runs the log collector (Loki, Alloy, Grafana)
+  on a development machine and opens Grafana on http://127.0.0.1:8008 with no
+  login. A wrapper around `dev-logs.ps1`, which takes the same switches.
+  Not the box: it starts neither the tunnel nor the shared PostgreSQL, and
+  `tests/test_dev_logs.py` asserts it cannot.
 - `docs/` — how the box is arranged and why.
 
 `main` is production and moves only by a release pull request from `dev`.

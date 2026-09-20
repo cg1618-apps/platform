@@ -196,3 +196,71 @@ def test_the_one_app_that_needs_a_path_has_one(registry):
     for name, app in by_name.items():
         if name != "media":
             assert "path" not in app, name
+
+
+def _entry(**overrides):
+    base = {
+        "name": "media",
+        "hostname": "media.cg1618.com",
+        "port": 8000,
+        "database": "media",
+        "repo": "git@github.com:cg1618-apps/media.git",
+        "exposure": "public",
+        "health_path": "/api/health",
+        "migrations": True,
+        "status": "live",
+        "description": "x",
+    }
+    base.update(overrides)
+    return {"apps": [base]}
+
+
+def test_gated_paths_is_optional(schema):
+    # Every app but food has no write prefix to declare, so absence has to
+    # stay valid - and this is the mirror that keeps the three below honest.
+    jsonschema.validate(instance=_entry(), schema=schema)
+
+
+def test_a_gated_path_must_be_a_path(schema):
+    # The schema carries the shape; bin/validate_apps.py carries which app may
+    # hold the key at all.
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=_entry(gated_paths=["api/edit"]), schema=schema)
+
+
+def test_a_gated_path_may_not_repeat(schema):
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=_entry(gated_paths=["/api/edit", "/api/edit"]), schema=schema
+        )
+
+
+def test_an_empty_gated_paths_is_rejected(schema):
+    # An empty list is not "no write surface" - that is absence. A list that
+    # is present and empty reads as a declaration and probes nothing.
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=_entry(gated_paths=[]), schema=schema)
+
+
+def test_no_repository_is_legal(schema):
+    """`repo: null` means the service lives in the platform repository.
+
+    Same shape as `database: null` above: the value must survive the string
+    pattern rather than being checked against it. What null then implies about
+    `migrations`, `database` and `path` is relational and lives in
+    bin/validate_apps.py, which a schema cannot express.
+    """
+    jsonschema.validate(instance={"apps": [entry(repo=None)]}, schema=schema)
+
+
+def test_a_repository_that_is_present_is_still_pattern_checked(schema):
+    """The mirror. Allowing null must not have disabled the pattern.
+
+    Without this, changing `repo` to accept anything at all would pass the
+    test above and every other test in this file.
+    """
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance={"apps": [entry(repo="https://github.com/cg1618-apps/media")]},
+            schema=schema,
+        )

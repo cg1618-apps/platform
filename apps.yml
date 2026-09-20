@@ -53,6 +53,16 @@ apps:
     migrations: true
     status: live
     description: Ingredients, recipes, what is cookable, and the cooking schedule
+    # food is public: reads are unauthenticated and its writes sit behind
+    # Access on one prefix. The app owns that definition - app/routing.py holds
+    # WRITE_PREFIX and generates deploy/gated-paths from it - and this is the
+    # declaration bin/deploy refuses to disagree with, exactly as it refuses
+    # when `migrations` and the hook on disk disagree. bin/check-exposure
+    # probes each path here for the Access redirect, which the hostname root
+    # cannot answer for: a public app answers ungated at / by design, and would
+    # go on doing so with the write surface wide open.
+    gated_paths:
+      - /api/edit
 
   - name: travel
     hostname: travel.cg1618.com
@@ -84,3 +94,35 @@ apps:
     migrations: true
     status: live
     description: Practice records, references, schedule, and the drawing roadmap
+
+  # The box's own observability, and the first entry that is NOT an app in
+  # its own repository. It is here rather than emitted unconditionally like
+  # the apex page for one reason: bin/check-exposure iterates this file, so a
+  # cloudflare-access hostname that is absent from it is a hostname nothing
+  # probes. That is exactly how art served unauthenticated for twenty
+  # minutes, and this hostname holds every application's logs.
+  - name: logs
+    hostname: logs.cg1618.com
+    port: 8008
+    # Grafana keeps its own state in a docker volume, not in the shared
+    # PostgreSQL. Pointing it at `db` would put the thing that reports on an
+    # outage inside the blast radius of one.
+    database: null
+    # null means platform-owned: this service is in THIS repository's
+    # docker-compose.prod.yml, so there is no cg1618-apps/logs to clone, no
+    # deploy workflow and nothing for bin/provision to do.
+    # bin/validate_apps.py refuses migrations, a database or a path alongside
+    # it.
+    repo: null
+    exposure: cloudflare-access
+    health_path: /api/health
+    migrations: false
+    # Live. The Access application covering this hostname exists and was
+    # measured from the open internet before this line changed, rather than
+    # confirmed in a dashboard: an unauthenticated GET to
+    # https://logs.cg1618.com answered 302 to cg1618.cloudflareaccess.com,
+    # which is the redirect bin/check-exposure keys on. That ordering is the
+    # protection - live first would have published an unauthenticated Grafana
+    # holding four applications' logs.
+    status: live
+    description: Logs from every container on the box

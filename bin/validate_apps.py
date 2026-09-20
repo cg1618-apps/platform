@@ -7,8 +7,20 @@ exposure rule is about which value is allowed for which app, which a schema
 could only express as an enum per app name, restated every time an app is
 added.
 
-`migrations` needs no rule here - it is per-entry and boolean, so the schema's
-`required` list is the whole check. It is listed in this docstring anyway
+`gated_paths` needs a rule here for the same reason as exposure: which values
+are allowed depends on another field of the same entry, which a schema can only
+express by restating the entry. What it protects lives elsewhere too - bin/deploy
+refuses when this list and the app's own deploy/gated-paths disagree, and
+bin/check-exposure probes each path from the open internet.
+
+`repo: null` needs a rule here for the same reason as the others: what it
+implies about `migrations`, `database` and `path` is a relationship between
+fields of one entry, which a schema can only express by restating the entry.
+Null means the service lives in this repository - the log collector - and so
+is reserved and probed but never deployed or provisioned.
+
+`migrations` needs no rule of its own here - it is per-entry and boolean, so
+the schema's `required` list is the whole check. It is listed in this docstring anyway
 because the thing it protects is not in this file: bin/deploy and bin/rollback
 read it, and an app declaring `true` with no executable deploy/migrations is
 refused there rather than deployed with no approval gate.
@@ -36,6 +48,14 @@ SCHEMA = ROOT / "schema" / "apps.schema.json"
 # before the ingress rule exists, not after it has been serving.
 NEVER_PUBLIC = ("journal", "health", "money")
 
+# The schema reserves 8000-8099. Apps take the bottom of that block and every
+# worktree allocates from WORKTREE_FLOOR upward, because a worktree needs a
+# port no app entry can ever claim - see docs/dev-ports.md. Registering an app
+# at or above the floor would put it in the band worktrees hand out, and the
+# collision surfaces as somebody else's app failing to bind hours later, with
+# nothing pointing back at the worktree that took it.
+WORKTREE_FLOOR = 8050
+
 
 def validate(registry: dict) -> list[str]:
     """Return one message per policy violation; empty means clean."""
@@ -59,11 +79,66 @@ def validate(registry: dict) -> list[str]:
                 f"{a['name']} is exposure 'public'; it holds a different class "
                 f"of data and must be 'cloudflare-access' or 'lan-only'"
             )
-        expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
-        if a["repo"] != expected_repo:
+        # `gated_paths` only means anything on a public app. A
+        # cloudflare-access hostname is gated at every path already, and
+        # lan-only has no ingress rule at all - so declaring a gated prefix
+        # on either is a statement about a gate that is not where the entry
+        # says it is, and bin/check-exposure would "confirm" it by finding
+        # the redirect the whole hostname already returns.
+        gated = a.get("gated_paths") or []
+        if gated and a["exposure"] != "public":
             problems.append(
-                f"{a['name']} names repository {a['repo']!r}, expected {expected_repo!r}"
+                f"{a['name']} declares gated_paths but is exposure "
+                f"{a['exposure']!r}; that value already gates every path, so "
+                f"a prefix here would be confirmed by the hostname's own gate"
             )
+        for path in gated:
+            if path == "/":
+                problems.append(
+                    f"{a['name']} declares gated_paths '/'; gating every path "
+                    f"is exposure 'cloudflare-access', not a public app with a "
+                    f"prefix"
+                )
+
+        if a["port"] >= WORKTREE_FLOOR:
+            problems.append(
+                f"{a['name']} claims port {a['port']}; apps keep below "
+                f"{WORKTREE_FLOOR} and worktrees allocate from there upward, "
+                f"so this port is one a worktree may already be using"
+            )
+
+        # `repo: null` means the service lives in THIS repository rather than
+        # in one of its own - the log collector is the case it was added for.
+        # Such an entry is here to reserve a hostname and a port and to be
+        # probed by bin/check-exposure, not to be deployed: nothing in
+        # cg1618-apps/<name> exists to deploy, and bin/deploy is only ever
+        # called by an app's own workflow, which a platform service has none
+        # of. The other two fields are refused rather than ignored so that the
+        # entry cannot quietly claim a gate nothing will ever operate.
+        if a["repo"] is None:
+            if a["migrations"]:
+                problems.append(
+                    f"{a['name']} declares migrations with no repository; a "
+                    f"platform-owned service has no deploy/migrations hook and "
+                    f"nothing would ever run one"
+                )
+            if a["database"] is not None:
+                problems.append(
+                    f"{a['name']} declares database {a['database']!r} with no "
+                    f"repository; bin/provision reads the registry's repo to "
+                    f"find the checkout, so it cannot provision this entry"
+                )
+            if "path" in a:
+                problems.append(
+                    f"{a['name']} declares a checkout path with no repository; "
+                    f"there is nothing to check out"
+                )
+        else:
+            expected_repo = f"git@github.com:cg1618-apps/{a['name']}.git"
+            if a["repo"] != expected_repo:
+                problems.append(
+                    f"{a['name']} names repository {a['repo']!r}, expected {expected_repo!r}"
+                )
 
     return problems
 

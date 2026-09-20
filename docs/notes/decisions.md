@@ -91,3 +91,184 @@ exactly like a working gate.
 `bin/check-exposure` asks the open internet. It is deliberately the opposite
 of `bin/health`, which probes from inside the container so that a tunnel
 hiccup cannot roll back good code.
+
+## A gated path is defined by the app; the registry declares it and is checked
+
+`docs/registry.md` tells a `public` app to keep its write surface under its own
+path prefix and protect that prefix, or a public hostname is a public editor.
+Nothing expressed that prefix, and nothing checked it: `exposure` is one enum
+for a whole app, and `bin/check-exposure` probes `https://<hostname>` and
+nothing below it, so an unprotected write prefix answers ungated at the root —
+correctly — and passes.
+
+**The app is the authority.** Which paths an app's writes live on is a fact
+about its route table, discoverable only in that repository and changed only by
+a commit there. A prefix typed by hand into `apps.yml` is a transcription of
+something that lives elsewhere, and it goes stale the moment a route moves,
+silently, because the platform has no way to notice. That is the opposite of
+`hostname`, `port` and `database`, which the platform *allocates* and the app
+receives — those are correctly registry-owned.
+
+So the app ships the definition: one constant that its routers derive their
+prefix from and its tests assert against, and a generated `deploy/gated-paths`
+committed beside `deploy/migrations`, one path per line, LF. `bin/deploy`
+already has that checkout, and reads it from the commit rather than the
+working tree for the ordinary reason: the working tree can hold uncommitted
+edits, and what ships is what the commit says.
+
+**`deploy/gated-paths` is data, not a hook. It is mode `100644`.** Nothing
+execs it, so none of the executable-bit machinery around `deploy/migrations`
+applies to it — and that is worth stating because the analogy invites it. A
+check asserting `100755` on a data file would fail forever, reporting a
+permission problem that does not exist. Assert `100644` and LF, with the same
+`git ls-tree HEAD` mechanism the migrations hook is checked by and a different
+expected value.
+
+**`apps.yml` still carries `gated_paths`, and a disagreement is a refusal.**
+This mirrors `migrations`, which is a declaration rather than a description:
+`bin/deploy` refuses in both directions when the registry and the repository
+disagree, because which of them is right is a person's call. The same applies
+here.
+
+The analogy is not exact, and the difference is the reason the registry holds
+the values rather than a boolean. `migrations` is a boolean because `bin/deploy`
+only needs to know whether a hook should exist; it has the hook itself to run.
+`bin/check-exposure --all` has no app checkout — it runs from this repository
+against the open internet, and on a development machine the apps are cloned
+here but the registry's `path` describes the box's layout. It therefore needs
+the path strings themselves to have anything to probe. Two copies were accepted
+deliberately, with the drift made loud at deploy, rather than making the check
+runnable only from the box.
+
+Rejected: leaving the registry silent and the policy Cloudflare-side only. It
+is cheaper, and it reproduces exactly the gap `bin/check-exposure` was written
+to close — a gate asserted in a dashboard this repository cannot see, with
+nothing connecting the claim to the reality.
+
+## Apps emit streams; the box aggregates
+
+The question was whether to build a log system per app and integrate them, and
+whether production console output should be viewable at all. The answer is no
+per-app log system and no bespoke integrated one: **an application's logging
+obligation ends at stdout**, and one collector on the box aggregates every
+container's stream.
+
+The alternative — each app owning a log viewer, and something later joining
+them up — was rejected for the reason the polyrepo was chosen in the first
+place. The apps share a box, a database server and a tunnel; those are the
+platform's, and so is this. Four log viewers would be four implementations of
+one thing, diverging the way four of anything here diverges, and the
+integration would still have to be written afterwards against four shapes
+instead of one.
+
+It also puts the work where the leverage is. An app's half is a `dictConfig`
+and a middleware — hours, once, and then never thought about again. The
+platform's half is one collector that gains every app the day it is switched
+on, including the two apps nobody is currently working in.
+
+**Loki rather than ELK.** Both are free and self-hostable, and Elasticsearch
+would eat a mini PC on its own. Loki indexes labels rather than full text,
+which is the right trade for a box where the question is almost always "what
+did this container do around this time" rather than "find this word anywhere in
+a year". Grafana Alloy tails the docker socket and labels streams by container;
+Grafana reads Loki. All three are Grafana Labs OSS — Loki and Grafana AGPLv3,
+Alloy Apache 2.0 — with no Grafana Cloud or Enterprise involved.
+
+Resources were the only real objection, and they were measured rather than
+estimated before committing: on 2026-09-20 the box had 14.0 GB of 15.2 GB RAM
+available and 80 GB of 98 GB disk free, with all seven containers together
+under 550 MB. The stack's expected 400-500 MB is about 3.5% of memory. Dozzle
+— one container, live tail, stores nothing — was the fallback had the box been
+tight, and it is not the same product: it has no history, and history is half
+the point. It was not needed.
+
+**Audit trails are explicitly not this.** "Who changed this entry", "Pull All
+rewrote 312 rows" — that is domain data about a user's own records, it belongs
+in the app's own PostgreSQL and its own UI, and it is queried by a person
+asking a question about their data rather than by someone working out why the
+box is behaving strangely. Conflating the two produces a log system that is
+also a weak database, and an audit trail that disappears on a container
+recreate. The contract is in [../logging.md](../logging.md).
+
+## The collector is in the registry; the apex page is not
+
+Both are infrastructure in this repository rather than applications in
+`cg1618-apps/<name>`, and they are treated oppositely. The reason is not
+tidiness, and "is it an application" turns out to be the wrong question.
+
+**`bin/check-exposure` iterates `apps.yml`.** A hostname that is not in that
+file is a hostname nothing probes — and a `cloudflare-access` DNS record with
+no Access application behind it looks identical to a working one from
+everywhere except the open internet. `art` served unauthenticated for twenty
+minutes on exactly that. Grafana holds every application's logs, so it is the
+worst hostname on the box to get that wrong about, and being probed is worth
+more than the tidiness of keeping non-apps out.
+
+The apex page needs none of that: it is `public`, it authenticates nobody, and
+there is nothing for a check to discover. Its rule stands — the day it needs a
+backend it becomes `cg1618-apps/landing` with an entry like any other app.
+
+The cost is a schema change: `repo` is now nullable, meaning platform-owned,
+and `bin/validate_apps.py` refuses `migrations`, a `database` and a `path`
+alongside it rather than ignoring them. The alternatives were worse. Inventing
+`cg1618-apps/logs` would have put a repository in the registry that does not
+exist, so `bin/provision` would clone nothing and the entry would lie. Emitting
+the hostname unconditionally from `bin/generate_ingress.py`, like the apex
+rule, would have routed it while leaving it outside the only check that asks
+whether the gate is real — which is the whole failure being avoided.
+
+A side effect worth having: `logs` reserves port 8008. `apex` listens on 8007
+with no entry, so nothing stops a future app claiming 8007 and colliding with
+it.
+
+The consequence to accept is that the apex page now lists `logs`, because that
+page renders every entry. It is a public page, so the hostname is public
+knowledge. That costs nothing real — every hostname with a Cloudflare
+certificate is already in the public Certificate Transparency logs, so hiding
+it from the apex page would have hidden it from nobody.
+
+## `media` is the reference because it is read, not because it is right
+
+"House style" names `media` the reference implementation the other three copy
+conventions from. That is the correct rule and it stays. What it must not be
+read as is that `media` is where the truth lives, because on the day it was
+written `media` was measurably wrong in places the apps copying it were
+right.
+
+Three instances, all from 2026-09-19:
+
+- **Migration naming.** `media` uses mnemonic revision ids throughout.
+  `food`, `travel` and `art` each carry `0001_baseline.py` from the same app
+  skeleton, so three of four apps agreed and all three were inheriting one
+  decision nobody made. Reading the neighbours rather than the reference sent
+  `travel` to `0002_packing`, and very nearly sent a correction to `food`,
+  which was the only new app actually following `media`.
+- **`strictPort`.** `food`, `travel` and `art` all set it. `media` does not.
+  The three apps that copied the reference are ahead of it, because they made
+  a choice it never revisited.
+- **The frontend fetch wrapper.** `media`'s renders an array-shaped Pydantic
+  422 as `[object Object]` and discards the status code, which makes its own
+  documented 409 contract unusable. `food` did not inherit either, because
+  when it asked about the convention it was told to write the fixed wrapper
+  rather than copy the shipped one.
+
+**The mechanism that protected `food` was not `media` being correct.** `media`
+is still broken on both counts. It was `media` being asked to justify itself
+and answering honestly.
+
+So the rule in practice: **read the reference rather than the neighbours,
+because the neighbours may all be inheriting one unmade decision — and ask the
+reference why, because it may be a starting point that has not been revisited
+rather than a decision.** An app that finds the reference wrong and says so is
+the rule working, not an app going off-style. What the section rules out is
+diverging silently, not diverging.
+
+**Three in one evening is not a base rate, and reading it as one inverts the
+rule.** These surfaced together because `food` was asking convention questions
+in detail and every answer was verified against the file rather than relayed —
+a high-attention night, not a typical one. The conclusion is that the
+reference is a starting point which has to defend itself when asked. It is not
+that the reference is usually wrong: an app that stops reading `media` because
+of this entry has taken exactly the wrong lesson from it, and will reinvent
+conventions that were right all along. Ask, and believe the answer when it
+holds up.

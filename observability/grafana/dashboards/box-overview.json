@@ -1,14 +1,14 @@
 {
   "uid": "cg1618-box-overview",
   "title": "Box overview",
-  "description": "The four standing questions about the box: how much is happening, how much of it is wrong, which container, and which request. Provisioned from observability/grafana/dashboards/ in the platform repository - edit it there, not here.",
+  "description": "The four standing questions about the box: how much is happening, how much of it is wrong, which container, and which request. Provisioned from observability/grafana/dashboards/ in the platform repository - edit it there, not here. How to read it: docs/observability.md.",
   "tags": [
     "cg1618",
     "logs"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
   "time": {
     "from": "now-6h",
@@ -19,7 +19,7 @@
     {
       "type": "stat",
       "title": "Lines, selected range",
-      "description": "Everything every container on the box wrote in the window above. A sudden change here is worth explaining even when nothing looks broken.",
+      "description": "Everything every container wrote in the window above. Meaningless on its own and meaningful when it CHANGES - a step with no deploy behind it usually means something is retrying in a loop, and a drop usually means something stopped serving.",
       "id": 1,
       "datasource": {
         "type": "loki",
@@ -50,7 +50,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "text",
+        "colorMode": "value",
         "graphMode": "none",
         "textMode": "auto",
         "justifyMode": "auto"
@@ -68,8 +68,8 @@
     },
     {
       "type": "stat",
-      "title": "Error-ish lines",
-      "description": "Lines matching error/exception/traceback/critical, case-insensitive. A TEXT match, so it over-counts: a URL containing the word counts. Once the apps emit JSON the honest version is | json | level=~\"ERROR|CRITICAL\".",
+      "title": "Application errors",
+      "description": "The real count, read off the level FIELD rather than searched for as text. Covers the four apps only, because only they emit JSON.\n\nThis panel used to be a text match and over-counted badly. On 2026-09-20 it read 49 for the whole box, of which 40 were Grafana describing itself and 4 were food's STARTUP lines - INFO records whose logger is named uvicorn.error, which is uvicorn's general logger rather than an error logger. The true count for that window was zero.",
       "id": 2,
       "datasource": {
         "type": "loki",
@@ -84,7 +84,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(count_over_time({job=\"docker\"} |~ \"(?i)(error|exception|traceback|critical)\" [$__range]))",
+          "expr": "sum(count_over_time({container=~\".+-app-1\"} | json | level=~\"ERROR|CRITICAL\" [$__range]))",
           "datasource": {
             "type": "loki",
             "uid": "loki"
@@ -100,7 +100,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "text",
+        "colorMode": "value",
         "graphMode": "none",
         "textMode": "auto",
         "justifyMode": "auto"
@@ -119,7 +119,7 @@
     {
       "type": "stat",
       "title": "Containers reporting",
-      "description": "How many containers wrote anything. The box normally runs ten. A DROP here is the useful signal - a container that stopped logging is usually a container that stopped.",
+      "description": "How many containers wrote anything. The box runs TEN: four apps, db, cloudflared, apex, and the collector's own three.\n\nThis is the panel that needs no interpretation. Below ten, something has stopped - a container that stops logging has almost always stopped.",
       "id": 3,
       "datasource": {
         "type": "loki",
@@ -150,7 +150,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "text",
+        "colorMode": "value",
         "graphMode": "none",
         "textMode": "auto",
         "justifyMode": "auto"
@@ -169,7 +169,7 @@
     {
       "type": "timeseries",
       "title": "Log volume by container",
-      "description": "Who is talking, and when. Use it to spot a container that has gone quiet as much as one that has gone loud.",
+      "description": "Who is talking, and when. The quieter apps normally sit at nearly identical counts, because that is the health probe and almost nothing else - so ONE app diverging from its neighbours is the signal, more than any absolute number. A container going quiet matters as much as one going loud.",
       "id": 4,
       "datasource": {
         "type": "loki",
@@ -224,8 +224,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Error-ish lines by container",
-      "description": "Same window, only the matching lines. Steady low background is normal; the shape changing is the signal, not the absolute number.",
+      "title": "Application errors by app",
+      "description": "The same field-based count, split by the app field the applications emit. Use it to answer WHICH app before going looking.\n\nGrouped by app rather than container deliberately: app is what the application calls itself and container is what docker calls the process. They differ by the -app-1 suffix and neither is wrong.",
       "id": 5,
       "datasource": {
         "type": "loki",
@@ -240,13 +240,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (container) (count_over_time({job=\"docker\"} |~ \"(?i)(error|exception|traceback|critical)\" [$__auto]))",
+          "expr": "sum by (app) (count_over_time({container=~\".+-app-1\"} | json | level=~\"ERROR|CRITICAL\" [$__auto]))",
           "datasource": {
             "type": "loki",
             "uid": "loki"
           },
           "queryType": "range",
-          "legendFormat": "{{container}}"
+          "legendFormat": "{{app}}"
         }
       ],
       "options": {
@@ -280,8 +280,8 @@
     },
     {
       "type": "logs",
-      "title": "Recent error-ish lines, whole box",
-      "description": "The lines behind the panel above. Start here when something is wrong and you do not yet know which app.",
+      "title": "Recent application errors",
+      "description": "The lines behind the two panels above, and the place to start when something is wrong. Empty is the normal state.",
       "id": 6,
       "datasource": {
         "type": "loki",
@@ -296,7 +296,45 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=\"docker\"} |~ \"(?i)(error|exception|traceback|critical)\"",
+          "expr": "{container=~\".+-app-1\"} | json | level=~\"ERROR|CRITICAL\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "direction": "backward"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Infrastructure lines matching 'error'",
+      "description": "db, cloudflared, apex, loki, alloy and grafana. These are third-party containers that do NOT emit the platform's JSON, so this is a text match and it over-counts - a line merely containing the word appears here.\n\nIt is kept rather than dropped for being noisy, because a PostgreSQL or tunnel error matters more than most application errors and nothing else would show it. Read it as a place to look, never as a count. Grafana dominates it by volume and is almost always describing itself.",
+      "id": 7,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{container=~\"cg1618-.+\"} |~ \"(?i)(error|exception|traceback|critical)\"",
           "datasource": {
             "type": "loki",
             "uid": "loki"
@@ -319,8 +357,8 @@
     {
       "type": "logs",
       "title": "One container: $container",
-      "description": "Drill-down. Pick a container at the top; leave Search empty to see everything, or type a substring to filter. An empty line filter matches every line, which is why it is safe to leave blank.",
-      "id": 7,
+      "description": "Drill-down. Pick a container above; leave Search empty for everything, or type a substring. An empty Loki line filter is a no-op rather than an error, which is why blank is safe.",
+      "id": 8,
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -329,7 +367,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 30
       },
       "targets": [
         {
@@ -357,8 +395,8 @@
     {
       "type": "logs",
       "title": "Find one request: $request_id",
-      "description": "Paste the X-Request-ID from a failed response and get every line that request produced, across whichever container handled it. A line filter rather than | json, so it works on today's plain-text logs and on tomorrow's JSON. LEAVE IT BLANK AND IT MATCHES EVERYTHING - that is not a bug, an empty filter is a no-op.",
-      "id": 8,
+      "description": "The incident tool. Copy X-Request-ID from a failed response and paste it above to get every line that request produced, across whichever container handled it.\n\nA line filter rather than a json parser, so it works on the apps' JSON and on the infrastructure's plain text alike. LEAVE IT BLANK AND IT MATCHES EVERYTHING - an empty filter is a no-op, not a bug.",
+      "id": 9,
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -367,7 +405,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 40
       },
       "targets": [
         {
@@ -409,7 +447,7 @@
         "includeAll": false,
         "multi": false,
         "current": {},
-        "description": "Feeds the drill-down panel. Refreshed on dashboard load, so a new container appears without editing anything."
+        "description": "Feeds the drill-down panel; refreshed on load, so a new container appears without editing anything."
       },
       {
         "name": "search",

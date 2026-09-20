@@ -17,6 +17,8 @@ and ignored by it, so the histories never meet.
   the contract an app joins them on.
 - `docs/logging.md` — what every app's logging must emit, and where it is
   read.
+- `docs/observability.md` — reading the logs: the dashboard, the queries,
+  and what each panel actually counts.
 - `dev.cmd` — double-click it. Runs the log collector (Loki, Alloy, Grafana)
   on a development machine and opens Grafana on http://127.0.0.1:8008 with no
   login. A wrapper around `dev-logs.ps1`, which takes the same switches.

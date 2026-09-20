@@ -143,44 +143,36 @@ precedent set by accident is the thing "House style" was written against.
 
 Raised by the session that wrote #48, against its own change.
 
-## Two calls in the deploy gate have never been executed
+## One call in the deploy gate has still never been executed
 
-The migration-approval gate is built and merged, and two of its API calls are
-still reasoning from documentation rather than observation. Neither has run
-once:
+The migration-approval gate had two API calls that were reasoning from
+documentation rather than observation. **One of them has now run.**
 
-- **`verify-gate` reads `GET repos/{owner}/{repo}/environments/production`**
-  with `permissions: contents: read` and `${{ github.token }}`, and refuses
-  unless the protection rules include `required_reviewers`. That this token
-  and that scope can read the environments endpoint on a public repository is
-  from the documentation. If it cannot, the job fails closed — which is the
-  right direction, but it fails at the moment somebody is waiting on a
-  migration deploy, and the error will look like a gate misconfiguration
-  rather than a permissions one.
+- ~~**`verify-gate` reads `GET repos/{owner}/{repo}/environments/production`**~~
+  — **executed**. `food`'s release on 2026-09-20 was the platform's first gated
+  migration deploy, and the job went `classify: success`, `verify-gate:
+  success`, `deploy: skipped`, `deploy-migration: waiting for approval`, then
+  `conclusion: success`. So `${{ github.token }}` with `permissions: contents:
+  read` *can* read the environments endpoint on a public repository, the
+  refusal logic sees `required_reviewers`, and `classify` routes a
+  migration-carrying push down the gated lane. `travel`'s release is the second
+  run of the same path.
+
 - **`bin/provision` arms the gate with `gh api -X PUT
-  repos/<slug>/environments/production`**, needing a token that administers
-  the app repository. It has never been run against a repository whose
-  environment was not already armed. This one fails visibly: the `else` branch
-  prints the exact command for a machine that is logged in, and provisioning
-  continues, because by then the role, the database and the `.env` are
-  written.
+  repos/<slug>/environments/production`**, needing a token that administers the
+  app repository. **Still never executed against a repository whose environment
+  was not already armed** — all four were armed by hand before `bin/provision`
+  existed, so every run since has been a no-op against an already-correct
+  environment.
 
-**The first migration deploy of any app exercises both**, and that is the only
-thing that will. Nothing before it does: the gate is skipped entirely when
-`classify` finds no migration, so every deploy so far has gone down the
-ungated lane and proven nothing about this one.
+  This one fails visibly rather than quietly: the `else` branch prints the
+  exact command for a machine that is logged in, and provisioning continues,
+  because by then the role, the database and the `.env` are written. The first
+  time it matters is the fifth app.
 
-**That first deploy is already on the way, and nobody scheduled it as a
-test.** `travel` has `alembic/versions/0002_packing.py` on `feat/packing-lists`
-and `food` has its ingredients revision on `feat/ingredients`; `origin/main`
-holds only the baseline in both. So whichever of those two releases first is
-the run that exercises these calls, and it exercises them during a release
-rather than a rehearsal.
-
-Not blocking. Worth knowing before the first migration goes out rather than
-during it, and worth doing deliberately — arm an app's environment with
-`bin/provision` on a repository that has none, and watch the first gated
-deploy rather than discovering it under a release.
+Not blocking. Worth doing deliberately before then — arm an app's environment
+with `bin/provision` on a repository that has none, rather than finding out
+during that app's first release.
 
 Recovered from a working report left by the step-4 deploy-pipeline round,
 which was never in git and has been deleted. Its two other unverified claims —
@@ -260,29 +252,6 @@ not match it. A check keyed on status would move under that transition; one
 keyed on the redirect does not notice it at all.
 
 Small to build, and it belongs in the same loop that probes the prefixes.
-
-## `logs.cg1618.com` is registered and planned, and three things make it live
-
-Loki, Alloy and Grafana are in `docker-compose.prod.yml` and CI starts them,
-pushes real container output through them and asserts Loki answers a query
-about it. The registry entry is `status: planned`, so the tunnel routes
-nothing and nothing is exposed.
-
-All three remaining steps need the owner, and **the order is not
-interchangeable**:
-
-1. **The Cloudflare Access application covering `logs.cg1618.com`**, plus its
-   DNS record. Dashboard work; the only step that makes the gate real.
-2. **`GRAFANA_ADMIN_PASSWORD` in the box's platform `.env`.** The compose entry
-   interpolates it with `:?`, so the whole stack refuses to start without it
-   rather than falling back to Grafana's built-in `admin`/`admin`. Nothing in
-   this repository can write that file and nothing should read it.
-3. **`status: live`** — one line, *after* `bin/check-exposure logs` has been run
-   and reports the hostname gated.
-
-Doing 3 before 1 publishes an unauthenticated Grafana holding four
-applications' logs. That is the `art` failure with considerably worse contents,
-and the ordering above is the whole protection against it.
 
 ## The box's docker daemon still has no default log cap
 

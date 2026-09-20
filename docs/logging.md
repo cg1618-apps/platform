@@ -186,8 +186,10 @@ happy path is one nobody can rely on.
 
 Every service, platform and app, caps its log driver: `json-file`,
 `max-size: "10m"`, `max-file: "5"`. The platform's half and what it does *not*
-cover are in [shared-stack.md](shared-stack.md); an app declares the same
-block in its own `docker-compose.prod.yml`.
+cover are in [shared-stack.md](shared-stack.md); all four apps now declare the
+same block in their own `docker-compose.prod.yml`, and `food`, `travel` and
+`art` assert it in their `test_prod_compose.py` alongside the other compose
+invariants.
 
 That cap bounds a buffer. It is not where logs are read from and it is not
 retention — recreating a container discards its log entirely, which happens on
@@ -258,42 +260,50 @@ Query by the label; read `app` off a line that arrived without one.
 
 ## Who conforms today
 
-This is the part to keep accurate; it is the only reason a contract page is
-not just a wish.
+This is the part to keep accurate; it is the only reason a contract page is not
+just a wish.
 
-| App | `logging_config.py` | JSON in production | uvicorn taken over | request id |
-| --- | --- | --- | --- | --- |
-| `media` | **yes** | **yes** | **yes** | **yes** |
-| `food` | **yes** | no | no | no |
-| `travel` | no | no | no | no |
-| `art` | no | no | no | no |
+| App | `logging_config.py` | JSON in production | uvicorn taken over | request id | log driver capped |
+| --- | --- | --- | --- | --- | --- |
+| `media` | yes | yes | yes | yes | yes |
+| `food` | yes | yes | yes | yes | yes |
+| `travel` | yes | yes | yes | yes | yes |
+| `art` | yes | yes | yes | yes | yes |
 
-**`food` is the origin of this shape and `media` is now the fullest example
-of it**, which is an ordering worth stating because it is the reverse of the
-usual one. `food/app/logging_config.py` came first: a `dictConfig` called once
-from `main.py`, `disable_existing_loggers: False`, `sqlalchemy.engine` pinned
-to `WARNING`. Until `feat/structured-logging`, `media` had no such file at all
-— its root log level was set by a `logging.basicConfig` running as an import
-side effect of one router, so what got logged depended on which module was
-imported first. `media` is the reference by default under "House style", and
-on this one thing it was the app that was wrong; see
-[notes/decisions.md](notes/decisions.md), "`media` is the reference because it
-is read, not because it is right".
+**All four, on each app's `dev`.** None of it is on any app's `main`, so
+nothing is emitting this in production yet — and the collector is not serving
+either, so there is currently nowhere for it to go. Both of those are release
+decisions rather than gaps in the contract.
 
-So an app starting from zero should read both: `food` for the minimal correct
-`dictConfig`, `media` for the JSON formatter, the request-id filter and the
-uvicorn takeover on top of it.
+### The order they arrived in, which is not the usual one
 
-`media`'s row is what is on `feat/structured-logging` in that checkout, read
-rather than reported — `app/logging_config.py` and `app/request_context.py`.
-It is not on `main`, so nothing is emitting this in production yet.
+`food` wrote the first `logging_config.py` — a `dictConfig` called once from
+`main.py`, `disable_existing_loggers: False`, `sqlalchemy.engine` pinned to
+`WARNING` — while `media` had no such file at all: its root log level was set by
+a `logging.basicConfig` running as an import side effect of one router, so what
+got logged depended on which module was imported first.
 
-What `food` does not yet have is the JSON formatter, the uvicorn takeover and
-the request-id middleware; its `logging_config.py` predates this contract and
-satisfies the half of it that existed then. **`travel` and `art` have nothing
-at all** — no `logging_config.py`, no `dictConfig`, no request id. Their root
-log level is whatever `logging` defaults to under whatever imported first.
+`media` is the reference by default under "House style", and on this one thing
+it was the app that was wrong. See [notes/decisions.md](notes/decisions.md),
+"`media` is the reference because it is read, not because it is right". `media`
+then built the fullest implementation on top of food's shape, so an app
+starting from zero should read `food` for the minimal correct `dictConfig` and
+`media` for the formatters, the request-id filter and the uvicorn takeover.
 
-Nobody is assigned to those three. One app conforming to a contract four apps
-are supposed to share is the state this table exists to make visible rather
-than comfortable.
+### Why `travel` and `art` adopted it with nothing to log
+
+Both had zero log calls when this landed, which is the argument for doing it
+then rather than against. `media` converted **85 f-string call sites** when the
+contract arrived after the code, and that conversion was the bulk of its work.
+The AST guard that forbids f-strings costs nothing to add to an app with no log
+calls and costs 85 call sites to add later; the middleware is likewise cheaper
+to put under a request path before it carries traffic.
+
+The one thing that genuinely differs between them is the reason the inbound
+`X-Request-ID` is validated. `media` and `food` are `public`, so the header
+arrives from the open internet. `travel` and `art` are `cloudflare-access`, so
+it cannot — and they validate it identically anyway, because the collector
+indexes every app together and because `exposure` is one line in `apps.yml`
+that `docs/registry.md` says both are expected to change one day. A validator
+that was only correct while an app was private is one nobody adds on the day it
+goes public.

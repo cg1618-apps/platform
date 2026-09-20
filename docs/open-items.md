@@ -143,42 +143,6 @@ precedent set by accident is the thing "House style" was written against.
 
 Raised by the session that wrote #48, against its own change.
 
-## One call in the deploy gate has still never been executed
-
-The migration-approval gate had two API calls that were reasoning from
-documentation rather than observation. **One of them has now run.**
-
-- ~~**`verify-gate` reads `GET repos/{owner}/{repo}/environments/production`**~~
-  — **executed**. `food`'s release on 2026-09-20 was the platform's first gated
-  migration deploy, and the job went `classify: success`, `verify-gate:
-  success`, `deploy: skipped`, `deploy-migration: waiting for approval`, then
-  `conclusion: success`. So `${{ github.token }}` with `permissions: contents:
-  read` *can* read the environments endpoint on a public repository, the
-  refusal logic sees `required_reviewers`, and `classify` routes a
-  migration-carrying push down the gated lane. `travel`'s release is the second
-  run of the same path.
-
-- **`bin/provision` arms the gate with `gh api -X PUT
-  repos/<slug>/environments/production`**, needing a token that administers the
-  app repository. **Still never executed against a repository whose environment
-  was not already armed** — all four were armed by hand before `bin/provision`
-  existed, so every run since has been a no-op against an already-correct
-  environment.
-
-  This one fails visibly rather than quietly: the `else` branch prints the
-  exact command for a machine that is logged in, and provisioning continues,
-  because by then the role, the database and the `.env` are written. The first
-  time it matters is the fifth app.
-
-Not blocking. Worth doing deliberately before then — arm an app's environment
-with `bin/provision` on a repository that has none, rather than finding out
-during that app's first release.
-
-Recovered from a working report left by the step-4 deploy-pipeline round,
-which was never in git and has been deleted. Its two other unverified claims —
-SC2088 on the `bin/` scripts and the workflow parsing under `actionlint` — are
-closed: `ci.yml` runs both on every pull request and has been green since.
-
 ## `art`'s first hand-named migration, and why three baselines are not evidence
 
 `CLAUDE.md`'s "House style" already settles this — migration naming is one of
@@ -255,34 +219,46 @@ Small to build, and it belongs in the same loop that probes the prefixes.
 
 ## The box's docker daemon still has no default log cap
 
-Every service in `docker-compose.prod.yml` now caps its log driver, and each
-app's compose file is expected to do the same for its own service. Neither
-covers anything started **outside** a compose file — a one-off `docker run`, a
-container the Actions runner leaves behind, whatever a later session starts by
-hand while debugging. Those take the daemon default, and the box has no
-`/etc/docker/daemon.json` at all, so that default is still `json-file` with no
-`max-size`.
+Every service in `docker-compose.prod.yml` caps its log driver, and so does
+each app's. Neither covers anything started **outside** a compose file — a
+one-off `docker run`, a container the Actions runner leaves behind, whatever a
+session starts by hand while debugging. Those take the daemon default, and the
+box has no `/etc/docker/daemon.json` at all, so that default is still
+`json-file` with no `max-size`.
 
-It is a much smaller hole than the one that was just closed: the long-lived
-containers are all in compose files. What it catches is the container nobody
-wrote a compose file for, which is also the one nobody will think to check.
+**It is a small hole and it needs root, which is the only reason it is still
+here.** The long-lived containers are all in compose files. What this catches
+is the container nobody wrote a compose file for, which is also the one nobody
+will think to check.
+
+The platform sessions reach the box over SSH without passwordless `sudo` —
+confirmed, `sudo -n true` answers *"interactive authentication is required"* —
+so this is the owner's to run, in one paste:
 
 ```bash
-# on the box, once
-sudo tee /etc/docker/daemon.json <<'EOF'
+ssh homelab
+sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
 {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
 EOF
 sudo systemctl restart docker
 ```
 
-**The restart bounces every container on the box**, which is the only reason
-this is an open item rather than something already done. It needs a moment
-when a few seconds of every hostname 502-ing is acceptable, and it needs root —
-the platform sessions reach the box over SSH without passwordless `sudo`, so
-this is the owner's to run or to grant.
+**The restart bounces every container on the box**, which is why it wants a
+deliberate moment rather than being folded into something else. Every service
+is `restart: unless-stopped`, so they all come back on their own; the
+interruption is seconds, and it is the same shape as the one the first
+observability release caused.
 
-It does not make the per-service blocks redundant. The daemon default is not
-in this repository, where a diff would show it changing.
+Afterwards, this confirms it without needing root:
+
+```bash
+docker info --format '{{.LoggingDriver}}'          # json-file
+docker run --rm alpine:3 true                       # a container from outside compose
+docker inspect --format '{{json .HostConfig.LogConfig}}' <any container started since>
+```
+
+It does **not** make the per-service blocks redundant. The daemon default is
+not in this repository, where a diff would show it changing.
 
 ## `bin/rollback` names a document three apps do not have
 

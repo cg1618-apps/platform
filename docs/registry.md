@@ -320,7 +320,26 @@ done, the services are added to `docker-compose.dev-db.yml` as `db-media`,
 
      `-F` rather than `-f` on every one of them: `-f` sends each value as a
      JSON string, and `prevent_self_review` is a typed boolean, so the API
-     answers 422. The workflow's `verify-gate` job asks the API
+     answers 422.
+
+     **Both halves of this have now been observed rather than read.** The
+     `PUT` was run on 2026-09-20 against `cg1618-apps/platform`, a repository
+     with no environments at all, and created one from nothing:
+
+     ```
+     before  {"count": 0, "names": []}
+     after   {"name":"production","rules":[{"type":"required_reviewers",
+              "prevent_self_review":false,"reviewers":["cgentle1618"]}]}
+     ```
+
+     — then deleted again, because the platform has no deploy workflow and
+     should not carry an environment. It was tested there rather than on an
+     app precisely so that no app's gate was disarmed, even for seconds.
+
+     And `verify-gate`'s `GET` of the same endpoint ran for real in `food`'s
+     and `travel`'s releases, both of which took the gated lane and reported
+     `verify-gate: success`. Neither call is reasoning from documentation any
+     more. The workflow's `verify-gate` job asks the API
      whether the environment really has required reviewers and refuses the
      deploy when it does not, so an app that was never armed fails loudly
      instead of deploying.

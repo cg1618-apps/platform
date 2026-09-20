@@ -126,8 +126,106 @@ services:
       retries: 3
       start_period: 10s
 
+
+  # --- observability -------------------------------------------------------
+  #
+  # Three containers, one job: every container's stdout, searchable in one
+  # place, surviving the deploy that recreated the container. See
+  # docs/logging.md for what the applications put INTO the stream.
+
+  loki:
+    image: grafana/loki:3
+    restart: unless-stopped
+    logging: *log_rotation
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      # The directory, not the file - the same inode rule as everything else
+      # here. See "Bind mounts are directories" in docs/shared-stack.md.
+      - ./observability/loki:/etc/loki:ro
+      - loki_data:/loki
+    networks:
+      - cg1618
+    # NO healthcheck, and not by oversight. The grafana/loki image is
+    # distroless: it contains the loki binary and no shell, so CMD-SHELL fails
+    # with `exec: "/bin/sh": stat /bin/sh: no such file or directory`, and
+    # there is no wget or curl to use with plain CMD either. A healthcheck
+    # written anyway does not report "Loki is unwell" - it reports nothing,
+    # forever, while the container sits at `health: starting` and every
+    # `docker compose ps` looks like a Loki that never came up.
+    #
+    # Loki's readiness is asserted from OUTSIDE the container instead: CI
+    # probes http://loki:3100/ready from the grafana container, which is on
+    # this network and does have a shell.
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    logging: *log_rotation
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy:/etc/alloy:ro
+      - alloy_data:/var/lib/alloy/data
+      # THE DOCKER SOCKET IS ROOT ON THIS BOX. Anything that can write here
+      # can start a privileged container and own the machine, so this is the
+      # most trusted container in the project by some distance. `:ro` narrows
+      # what the kernel allows on the socket FILE and does not make the API
+      # read-only - it is honesty about intent, not a control.
+      #
+      # It is mounted because the alternative reads the log files under
+      # /var/lib/docker/containers directly, which needs the same root and
+      # gives Alloy a directory of hex ids with no container names, no compose
+      # project and nothing to label a stream by.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - cg1618
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.2
+    restart: unless-stopped
+    logging: *log_rotation
+    environment:
+      # 8008, not Grafana's default 3000, because apps.yml assigns the port
+      # and bin/generate_ingress.py writes http://logs-app:8008 into the
+      # tunnel from it. Two sides of one contract; see docs/shared-stack.md.
+      GF_SERVER_HTTP_PORT: "8008"
+      GF_SERVER_ROOT_URL: "https://logs.cg1618.com"
+      # `:?` rather than a default. An unset variable would otherwise
+      # interpolate to empty, Grafana would fall back to its built-in
+      # admin/admin, and the container would come up looking entirely healthy.
+      # Failing to start is the correct end of that.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in the platform .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      cg1618:
+        aliases:
+          # What the generated ingress routes to. The registry calls this app
+          # `logs`, and the alias is `<name>-app` like every other app's.
+          - logs-app
+    depends_on:
+      - loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8008/api/health | grep -q ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
 volumes:
   pgdata:
+  loki_data:
+  alloy_data:
+  grafana_data:
 
 networks:
   cg1618:

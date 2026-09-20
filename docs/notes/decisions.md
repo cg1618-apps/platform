@@ -190,6 +190,43 @@ box is behaving strangely. Conflating the two produces a log system that is
 also a weak database, and an audit trail that disappears on a container
 recreate. The contract is in [../logging.md](../logging.md).
 
+## The collector is in the registry; the apex page is not
+
+Both are infrastructure in this repository rather than applications in
+`cg1618-apps/<name>`, and they are treated oppositely. The reason is not
+tidiness, and "is it an application" turns out to be the wrong question.
+
+**`bin/check-exposure` iterates `apps.yml`.** A hostname that is not in that
+file is a hostname nothing probes — and a `cloudflare-access` DNS record with
+no Access application behind it looks identical to a working one from
+everywhere except the open internet. `art` served unauthenticated for twenty
+minutes on exactly that. Grafana holds every application's logs, so it is the
+worst hostname on the box to get that wrong about, and being probed is worth
+more than the tidiness of keeping non-apps out.
+
+The apex page needs none of that: it is `public`, it authenticates nobody, and
+there is nothing for a check to discover. Its rule stands — the day it needs a
+backend it becomes `cg1618-apps/landing` with an entry like any other app.
+
+The cost is a schema change: `repo` is now nullable, meaning platform-owned,
+and `bin/validate_apps.py` refuses `migrations`, a `database` and a `path`
+alongside it rather than ignoring them. The alternatives were worse. Inventing
+`cg1618-apps/logs` would have put a repository in the registry that does not
+exist, so `bin/provision` would clone nothing and the entry would lie. Emitting
+the hostname unconditionally from `bin/generate_ingress.py`, like the apex
+rule, would have routed it while leaving it outside the only check that asks
+whether the gate is real — which is the whole failure being avoided.
+
+A side effect worth having: `logs` reserves port 8008. `apex` listens on 8007
+with no entry, so nothing stops a future app claiming 8007 and colliding with
+it.
+
+The consequence to accept is that the apex page now lists `logs`, because that
+page renders every entry. It is a public page, so the hostname is public
+knowledge. That costs nothing real — every hostname with a Cloudflare
+certificate is already in the public Certificate Transparency logs, so hiding
+it from the apex page would have hidden it from nobody.
+
 ## `media` is the reference because it is read, not because it is right
 
 "House style" names `media` the reference implementation the other three copy

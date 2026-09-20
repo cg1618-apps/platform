@@ -1,0 +1,15 @@
+# Provisioned rather than clicked. A datasource configured in the UI lives in
+# Grafana's own database, so it survives a restart and not a rebuild, and
+# nothing in this repository would say it existed.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    # The compose service name on the cg1618 network. Grafana queries Loki
+    # server-side, so this is resolved by the container rather than by the
+    # browser, and Loki needs no hostname of its own.
+    url: http://loki:3100
+    isDefault: true
+    editable: false

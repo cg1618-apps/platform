@@ -1,0 +1,69 @@
+# Loki, single binary, filesystem storage. One box, one writer, no ring to
+# speak of - `replication_factor: 1` and an in-memory kvstore are the whole
+# story. Anything larger belongs on a machine that is not also serving four
+# applications and a database.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  # Loki at `info` narrates its own compaction and retention every few
+  # seconds. That output is itself collected, so a chatty log level here is a
+  # feedback loop that fills the thing it is describing.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # TSDB and schema v13 - the current pair. An older schema here is the
+    # usual reason a fresh Loki reads as broken: it accepts writes and then
+    # cannot answer a query over them.
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 90 days. At the box's current rate - about 1 MB a day across every
+  # container, before compression - that is well under a gigabyte, so the
+  # number is chosen for how far back a question is ever asked rather than
+  # for capacity.
+  retention_period: 2160h
+  # A label per container per app, not per request. Nothing here should be
+  # generating thousands of streams, so a low ceiling turns a label-cardinality
+  # mistake into a refused write rather than a slow death.
+  max_label_names_per_series: 15
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  # Retention is the compactor's job and it is OFF by default: without this
+  # `retention_period` above is read, accepted, and silently does nothing.
+  retention_enabled: true
+  delete_request_store: filesystem
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+
+# No phone-home.
+analytics:
+  reporting_enabled: false

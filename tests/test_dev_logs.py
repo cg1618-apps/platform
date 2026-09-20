@@ -145,3 +145,77 @@ def test_loki_still_has_no_healthcheck(dev):
     runs to find that once. dev-logs.ps1 polls /ready from the host instead.
     """
     assert "healthcheck" not in dev["services"]["loki"]
+
+
+# --- anonymous access is local-only, and the mirror is the point -------------
+
+
+def grafana_env(compose: dict) -> dict:
+    return compose["services"]["grafana"].get("environment") or {}
+
+
+def test_the_local_grafana_needs_no_login(dev):
+    """One click means one click.
+
+    Anonymous access is what makes opening the page the whole interaction. It
+    is safe here because both published ports bind 127.0.0.1, so "anyone" means
+    "a process on this machine", and Admin rather than Viewer because Explore
+    and ad-hoc queries are the entire reason to run it.
+    """
+    env = grafana_env(dev)
+    assert env.get("GF_AUTH_ANONYMOUS_ENABLED") == "true"
+    assert env.get("GF_AUTH_ANONYMOUS_ORG_ROLE") == "Admin"
+
+
+def test_production_grafana_is_never_anonymous(prod):
+    """The mirror, and it is worth more than the test above it.
+
+    `logs.cg1618.com` can read every application's logs. Anonymous access there
+    would mean Cloudflare Access is the only gate on all of it - and the
+    failure this box has actually had is a DNS record reaching it with no
+    Access application behind it, which looks identical to a working one from
+    everywhere except the open internet.
+
+    The dev file carries these keys with a comment saying not to copy them.
+    This is that comment made mechanical, because a comment does not fail a
+    pull request.
+    """
+    env = grafana_env(prod)
+    assert "GF_AUTH_ANONYMOUS_ENABLED" not in env
+    assert "GF_AUTH_ANONYMOUS_ORG_ROLE" not in env
+
+
+def test_production_still_refuses_to_start_without_a_real_password(prod):
+    """`:?`, not a default.
+
+    With a default, an unset variable leaves Grafana on its built-in
+    admin/admin and the container comes up looking entirely healthy. Failing to
+    start is the correct end of that, and the dev file's default must not have
+    been copied back.
+    """
+    password = grafana_env(prod)["GF_SECURITY_ADMIN_PASSWORD"]
+    assert ":?" in password, password
+
+
+# --- the one-click wrapper --------------------------------------------------
+
+DEV_CMD = ROOT / "dev.cmd"
+
+
+def test_the_one_click_wrapper_exists_and_only_delegates():
+    """dev.cmd holds no logic, and that is the assertion.
+
+    It exists because Explorer runs a .cmd on a double-click and will not run a
+    .ps1, and because an unsigned script needs -ExecutionPolicy Bypass. Logic
+    duplicated into it would be logic that the PowerShell script's readers
+    never see.
+    """
+    assert DEV_CMD.is_file()
+    body = DEV_CMD.read_text(encoding="utf-8")
+    assert "dev-logs.ps1" in body
+    assert "-ExecutionPolicy Bypass" in body
+    # Arguments pass through, or `dev.cmd -Down` would silently START the stack.
+    assert "%*" in body
+    # Held open on failure: launched from Explorer the window closes instantly
+    # and takes the only explanation with it.
+    assert "pause" in body

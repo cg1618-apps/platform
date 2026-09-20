@@ -92,6 +92,21 @@ services:
       # look at. Do not copy this line into docker-compose.prod.yml.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Anonymous access, DEV ONLY, so opening the page is the whole
+      # interaction - no login stands between a double-click and a log line.
+      # Safe here and only here: both ports are bound to 127.0.0.1, so "anyone"
+      # means "a process on this machine", and the volume holds nothing but
+      # local scratch.
+      #
+      # Admin rather than Viewer because Explore, ad-hoc queries and saving a
+      # panel are the entire point of running this locally.
+      #
+      # The login form stays enabled, so admin/admin still works when you want
+      # to be a real user. NEVER copy these two lines into
+      # docker-compose.prod.yml - that hostname can read every application's
+      # logs, and tests/test_dev_logs.py asserts production has neither.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:

@@ -262,15 +262,37 @@ Query by the label; read `app` off a line that arrived without one.
 
 ## Viewing it locally
 
-```powershell
-.\dev-logs.ps1              # start, wait for both, open Grafana
-.\dev-logs.ps1 -Down        # stop; local history is kept
-.\dev-logs.ps1 -Clean       # stop and discard the local volumes too
+**Double-click `dev.cmd`.** That is the whole thing: it brings up Loki, Alloy
+and Grafana, waits for both to answer, and opens Grafana in a browser.
+
+```
+dev.cmd            start, and open Grafana
+dev.cmd -Down      stop; local history is kept
+dev.cmd -Clean     stop and discard the local volumes too
 ```
 
-Grafana is on **http://127.0.0.1:8008/**, `admin` / `admin`, with Loki already
-provisioned as the default datasource — go to **Explore**. Loki's own API is on
-`127.0.0.1:3100` if you would rather `curl` it.
+`dev.cmd` is a wrapper holding no logic of its own. It exists because Explorer
+runs a `.cmd` on a double-click and will not run a `.ps1`, and because an
+unsigned script needs `-ExecutionPolicy Bypass`. Everything it does is in
+`dev-logs.ps1`, which you can call directly with the same switches.
+
+**There is no login.** The local Grafana runs with anonymous access at the
+`Admin` role, so the page opens straight into Explore. `admin` / `admin` still
+works if you want to sign in as a real user.
+
+Grafana is on **http://127.0.0.1:8008/** with Loki already provisioned as the
+default datasource. Loki's own API is on `127.0.0.1:3100` if you would rather
+`curl` it — `/loki/api/v1/labels` is the quickest check that anything is
+arriving.
+
+**Anonymous access is local-only and must stay that way.** It is safe here
+because both ports bind `127.0.0.1`, so "anyone" means "a process on this
+machine". On the box it would mean Cloudflare Access is the only gate on every
+application's logs — and the failure this box has actually had is a DNS record
+reaching it with no Access application behind it.
+`tests/test_dev_logs.py` asserts production has neither anonymous key, and that
+its admin password still uses `:?` rather than a default. A comment saying "do
+not copy this line" does not fail a pull request; that test does.
 
 `docker-compose.dev-logs.yml` runs Loki, Alloy and Grafana and **nothing else**.
 It is a separate file rather than a profile on the production one because two of

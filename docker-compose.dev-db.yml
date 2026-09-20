@@ -1,0 +1,77 @@
+# The development PostgreSQL, for every app on this machine. NOT the box.
+#
+#   .\dev-db.cmd            start it
+#   .\dev-db.cmd -Down      stop and remove the container (the volume stays)
+#   .\dev-db.cmd -Migrate   one-off: copy the old anime_site volume into this one
+#
+# This lives here rather than in media's docker-compose.yml, which is where it
+# used to live, and the move is the point rather than the rename.
+#
+# One container holds one database per app - `media`, `food`, `travel`, `art` -
+# which is what production does too (docs/registry.md, "Development
+# databases"). It was NAMED anime_site_postgres_db because it began as media's,
+# and three apps were starting a container named after a fourth.
+#
+# The name was the visible half. The real defect was OWNERSHIP: the container
+# belonged to media's compose project, so `docker compose down` in any media
+# tree removed the database every other app was using. That is why this is a
+# compose project of its own - nothing an app does can adopt or destroy it.
+#
+# If per-app containers are ever wanted, they are added here as `db-media`,
+# `db-food` and so on. The trade is written up in docs/registry.md; the short
+# version is that the prize would be parallel test runs rather than isolation,
+# and it costs a port and a postgres process per app.
+
+name: cg1618-dev-db
+
+services:
+  db:
+    image: postgres:17
+    # Pinned, because every app's dev.ps1 names it. A compose-generated name
+    # would be cg1618-dev-db-db-1, which is worse to type and worse to read.
+    container_name: cg1618-dev-db
+    # unless-stopped, not always: `always` restarts a container you deliberately
+    # stopped, the next time Docker Desktop starts.
+    restart: unless-stopped
+    environment:
+      # These are only read when the data directory is EMPTY. After
+      # -Migrate has copied the old volume in, the superuser and every
+      # per-app role come with the data and these are ignored - so they
+      # matter on a fresh machine and nowhere else.
+      #
+      # `:?` rather than a default: an empty POSTGRES_PASSWORD makes the image
+      # refuse to initialise anyway, and failing at `compose up` with a message
+      # naming the variable beats failing inside the container's entrypoint.
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in the platform .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the platform .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in the platform .env}
+    ports:
+      # 127.0.0.1, not 0.0.0.0. media's compose published "5432:5432", which
+      # offers the development database to every network this laptop joins.
+      # The apps connect over loopback, so nothing needs the wider bind.
+      #
+      # 5432 is kept deliberately: every app's DATABASE_URL already names it,
+      # so this move changes a container name and nothing else.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      # $$ escapes compose's interpolation so the shell inside the container
+      # expands these, exactly as the production file does.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  pgdata:
+    # Named explicitly rather than left to the project prefix, so the volume
+    # holding four apps' development data is findable by a name that says what
+    # it is. The old one was anime_site_postgres_anime_data.
+    name: cg1618_dev_pgdata

@@ -53,9 +53,10 @@ def test_it_never_starts_the_tunnel(dev):
 
 
 def test_it_never_starts_the_shared_postgres(dev):
-    """`db` would bind 5432 against anime_site_postgres_db.
+    """`db` would bind 5432 against cg1618-dev-db.
 
-    That container is what every app's dev.ps1 starts and every app's tests use,
+    That is the development database every app's dev.ps1 starts and every app's
+    tests use,
     and the collision is quiet in the worst way - docs/dev-ports.md describes
     the shape, where a second server on the same port shadows the first and the
     app talks to an empty database while reporting success.

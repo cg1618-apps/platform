@@ -9,6 +9,7 @@ this logic lived in one application's deploy/ directory. Generalising it must
 not quietly drop any of them.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -224,7 +225,8 @@ def test_nothing_is_hard_coded_to_one_app():
 
 
 def test_the_app_checkout_is_resolvable_and_overridable():
-    # The media tracker's checkout on the box is ~/anime_site, not ~/media.
+    # No app sets a registry path today, so the default arm is the one in use
+    # - but both arms have to work before an app needs the other one.
     for script in SCRIPTS:
         body = code(script)
         assert "APPS_DIR" in body, script
@@ -555,9 +557,9 @@ def test_the_checkout_path_comes_from_the_registry_not_from_a_caller():
 
 def test_a_home_relative_registry_path_is_expanded():
     # The shell does not expand a tilde that arrives inside a variable, so a
-    # literal "~/anime_site" would become a directory called "~" beside the
+    # literal "~/somewhere" would become a directory called "~" beside the
     # runner's cwd - and the checkout guard would then say "no checkout at
-    # ~/anime_site", which is exactly what the registry says there is.
+    # ~/somewhere", which is exactly what the registry says there is.
     #
     # The mechanism, not its spelling: strip a literal "~/" off the front and
     # prepend HOME when that actually removed something. It was a `case` with
@@ -907,3 +909,144 @@ def test_every_production_service_caps_its_log_driver():
         # given, and a YAML-native integer for max-file is rejected at start.
         assert options.get("max-size") == "10m", name
         assert options.get("max-file") == "5", name
+
+
+# --- an Access policy that is too WIDE --------------------------------------
+#
+# The probe above asks whether a declared prefix is gated. These ask the
+# complement: whether anything ELSE got gated with it. That failure is quieter -
+# a fully working application nobody can read without signing in, with every
+# container healthy and every other probe passing.
+#
+# Executed rather than grepped, with a stubbed `curl`, because the assertion
+# that matters is a REFUSAL and a structural test cannot tell a refusal that
+# fires from one that cannot.
+
+WIDE_REGISTRY = """\
+apps:
+  - name: food
+    hostname: food.example.com
+    port: 8001
+    database: food
+    repo: git@github.com:cg1618-apps/food.git
+    exposure: public
+    health_path: /health
+    migrations: true
+    status: live
+    description: x
+    gated_paths:
+      - /api/edit
+"""
+
+# Answers by URL. The last argument curl receives is the URL, which is how the
+# real invocation in check-exposure is shaped.
+CURL_STUB = """\
+#!/usr/bin/env bash
+url="${@: -1}"
+gated() { printf 'HTTP/1.1 302 Found\r\nlocation: https://team.cloudflareaccess.com/login\r\n\r\n'; }
+open_()  { printf 'HTTP/1.1 %s OK\r\n\r\n' "${1:-200}"; }
+case "${url}" in
+    */api/edit) gated ;;
+    */api)      if [ -n "${WIDE:-}" ]; then gated; else open_ 404; fi ;;
+    *)          open_ 200 ;;
+esac
+"""
+
+
+def build_exposure_tree(tmp: Path) -> Path:
+    """A miniature platform checkout: the real script, a fixture registry."""
+    root = tmp / "platform"
+    (root / "bin").mkdir(parents=True)
+    script = root / "bin" / "check-exposure"
+    script.write_text(CHECK_EXPOSURE.read_text(encoding="utf-8"),
+                      encoding="utf-8", newline="\n")
+    script.chmod(0o755)
+    (root / "apps.yml").write_text(WIDE_REGISTRY, encoding="utf-8", newline="\n")
+
+    stub_dir = tmp / "stub"
+    stub_dir.mkdir()
+    curl = stub_dir / "curl"
+    curl.write_text(CURL_STUB, encoding="utf-8", newline="\n")
+    curl.chmod(0o755)
+    return root
+
+
+def run_exposure(tmp: Path, wide: bool) -> subprocess.CompletedProcess:
+    exe = usable_bash()
+    root = build_exposure_tree(tmp)
+    env = dict(os.environ)
+    env["PATH"] = f"{(tmp / 'stub').as_posix()}{os.pathsep}{env['PATH']}"
+    if wide:
+        env["WIDE"] = "1"
+    return subprocess.run(
+        [exe, str(root / "bin" / "check-exposure"), "--all"],
+        capture_output=True, text=True, env=env,
+    )
+
+
+def exposure_harness_works() -> bool:
+    """bash and a python3 that can import yaml - check-exposure needs both."""
+    exe = usable_bash()
+    if exe is None:
+        return False
+    probe = subprocess.run(
+        [exe, "-c", "python3 -c 'import yaml' >/dev/null 2>&1"], check=False
+    )
+    return probe.returncode == 0
+
+
+def test_a_gate_that_is_too_wide_is_refused():
+    """THE refusal. A policy covering /api instead of /api/edit.
+
+    Every other check passes in this state: the hostname answers, the declared
+    prefix is gated exactly as the registry says, and every container is
+    healthy. The only symptom is that nobody can read a public app - which the
+    owner discovers from a phone, not from this script, unless this fires.
+    """
+    if not exposure_harness_works():
+        pytest.skip("needs bash and a python3 that can import yaml")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        result = run_exposure(tmp, wide=True)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "IS GATED BUT NOTHING DECLARED IT" in result.stderr, result.stderr
+        assert "/api" in result.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_same_fixture_passes_when_the_gate_is_the_right_width():
+    """The mirror, and it is what makes the test above mean anything.
+
+    Same registry, same script, same stub - only the width of the gate differs.
+    Without this, a check-exposure that refused everything would pass the
+    refusal test above.
+    """
+    if not exposure_harness_works():
+        pytest.skip("needs bash and a python3 that can import yaml")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        result = run_exposure(tmp, wide=False)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "not too wide" in result.stdout, result.stdout
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_parent_is_derived_rather_than_declared():
+    """No second list to drift.
+
+    A list of an app's read paths would be wrong the moment a module lands, and
+    a check asserting a stale set goes green against paths nobody serves any
+    more - which is worse than no check. The parent comes from the prefix
+    itself.
+    """
+    body = code(CHECK_EXPOSURE)
+    assert 'parent="${path%/*}"' in body
+    # A single-segment prefix derives the root, already probed for a public app.
+    assert '[ -n "${parent}" ] || continue' in body
+
+
+def test_two_prefixes_under_one_parent_probe_it_once():
+    body = code(CHECK_EXPOSURE)
+    assert "probed_parents" in body

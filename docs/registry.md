@@ -1,6 +1,6 @@
 # The application registry
 
-Last verified: 2026-09-19
+Last verified: 2026-09-21
 
 `apps.yml` at the root of this repository is the one source of truth about which
 applications exist on the box and what each one is allowed to claim. The
@@ -20,7 +20,7 @@ apps:
     health_path: /api/health
     migrations: true         # does this app ship deploy/migrations?
     description: Media tracker & database
-    path: "~/anime_site"     # optional; only when the checkout is not <apps dir>/<name>
+    path: "~/elsewhere"      # optional; only when the checkout is not <apps dir>/<name>
 ```
 
 `status` separates a **claim** from a **running service**. An entry reserves the
@@ -29,11 +29,16 @@ what stops a second app taking them — but only a `live` app is routed by the
 tunnel and linked from the apex page. Routing a planned app would publish a
 hostname that answers 502, which is worse than one that does not resolve.
 
-`path` is **optional and almost always absent**: a checkout lives at
-`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>` — unless it does not, and
-`media` is the one that does not, because it predates the layout and sits at
-`~/anime_site`. A leading `~/` means `$HOME`; anything else must be absolute,
-and the schema forbids whitespace in the value.
+`path` is **optional and no app sets it today**: a checkout lives at
+`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>`. `media` was the one
+exception, at `~/anime_site`, until that checkout was renamed to `~/media` on
+2026-09-21 and the key came out of its entry. A leading `~/` means `$HOME`;
+anything else must be absolute, and the schema forbids whitespace in the
+value.
+
+The key stays, and so do its tests. An app whose checkout cannot live at
+`<apps dir>/<name>` is a thing the registry has to be able to say, and the
+day one arrives is the wrong day to find out the expansion never worked.
 
 It lives here rather than being passed in because **everything else the deploy
 scripts act on is registry-derived**. It was a workflow input once, and a
@@ -128,6 +133,14 @@ Both are committed rather than built at deploy time, so what will be served
 appears in the pull request diff where a person reads it. Neither is ever
 hand-edited; CI fails when the committed output and `apps.yml` disagree.
 
+**Not everything in `apex/html/` is generated.** `favicon.svg` and
+`favicon.ico` sit beside the generated page as ordinary committed assets, and
+are edited by replacing the file. Only `index.html` is generator output, and
+only `index.html` is what `--check` compares. The `<link rel="icon">` tags that
+point at them live in `bin/generate_apex.py`'s template, because the page they
+appear in is generated — so changing the icon's *filename* is a generator
+change, while changing the icon's *picture* is not.
+
 **The apex page is not in the registry.** `cg1618.com` is a rendering of
 `apps.yml` rather than an application, so it has no entry and its ingress rule
 is emitted unconditionally. That it is infrastructure is *not* the reason —
@@ -189,6 +202,35 @@ itself should keep shareable routes under their own prefix from the start, so
 that opening them up later is an Access policy edit rather than a redesign. The
 same applies in reverse to a `public` app: put the write surface under its own
 prefix and protect that, or a public hostname is a public editor.
+
+**`bin/check-exposure` asks the question in both directions.** For each
+declared prefix it probes the prefix itself and asserts the Access redirect is
+there — and then probes the prefix's **parent** and asserts it is not.
+
+The second one catches a policy that is too *wide*. An Access rule written as a
+path prefix is one typo from covering `/api` instead of `/api/edit`, and the
+result is a fully working application nobody can read without signing in: every
+container healthy, the hostname answering, the declared prefix gated exactly as
+the registry says. The person who finds out is whoever opens the site on a
+phone.
+
+The parent is **derived**, by stripping the last segment, rather than declared.
+A list of an app's read paths would be a second list to drift, and a check
+asserting a stale set goes green against paths nobody serves any more — worse
+than no check. A single-segment prefix derives `/`, which the hostname probe
+already covers.
+
+Measured against production on 2026-09-20:
+
+```
+food: /api/edit gated by Access, as declared (302)
+food: /api ungated, so the gate on /api/edit is not too wide (404)
+```
+
+The `404` there is food's own router refusing an unregistered `/api/...` path,
+not a gate — which is exactly why this keys on the **redirect** and never on
+the status code. That path will answer `405` or `422` as the app grows, and the
+check will not notice.
 
 **Moving an app from `cloudflare-access` to `public` moves the gate from
 Cloudflare into code.** The app's own visibility checks must already work

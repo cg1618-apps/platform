@@ -237,9 +237,14 @@ the field names, the request id — is [logging.md](logging.md).
 **This covers this compose file only, and each app's covers its own.** What is
 covered by neither is anything started outside a compose file — a one-off
 `docker run`, the Actions runner, whatever a later session starts by hand.
-Those take the daemon default, and **the box has no `/etc/docker/daemon.json`
-at all**, so the default there is still the uncapped one. Setting it is a root
-change on the box rather than anything this repository can make true:
+Those take the daemon default, and **that default is now capped too**:
+`/etc/docker/daemon.json` on the box carries the same three values. It was set
+on 2026-09-20 and verified by starting a container outside any compose file,
+which inherited `{"max-file":"5","max-size":"10m"}`.
+
+It is a root change and a platform session cannot make it — `sudo -n true` on
+the box answers *"interactive authentication is required"* — so it is recorded
+here rather than automated. To set it again on a rebuilt box:
 
 ```bash
 # on the box, once
@@ -249,11 +254,16 @@ EOF
 sudo systemctl restart docker
 ```
 
-That restart bounces every container, so it is done deliberately rather than
-folded into something else. It is outstanding; see `docs/open-items.md`. Note
-that it would not make the per-service blocks redundant even once done — the
-daemon default is not in this repository, where a diff would show it changing,
-and a service relying on it alone is one nobody decided about.
+That restart **bounces every container**, so it is done deliberately rather
+than folded into something else. Measured when it was: all ten containers were
+back and healthy within 24 seconds, all five hostnames answered correctly from
+the open internet, and Loki kept its data — 8,932 lines still queryable over
+the preceding twelve hours. Every service is `restart: unless-stopped`, which
+is what makes that true.
+
+It does **not** make the per-service blocks redundant. The daemon default is
+not in this repository, where a diff would show it changing, and a service
+relying on it alone is one nobody decided about.
 
 **This bounds a buffer; it is not a retention policy.** 10 MB × 5 files is
 months of history at the rate the box currently produces — roughly 7 KB per

@@ -1,6 +1,6 @@
 # The application registry
 
-Last verified: 2026-09-19
+Last verified: 2026-09-21
 
 `apps.yml` at the root of this repository is the one source of truth about which
 applications exist on the box and what each one is allowed to claim. The
@@ -20,7 +20,7 @@ apps:
     health_path: /api/health
     migrations: true         # does this app ship deploy/migrations?
     description: Media tracker & database
-    path: "~/anime_site"     # optional; only when the checkout is not <apps dir>/<name>
+    path: "~/elsewhere"      # optional; only when the checkout is not <apps dir>/<name>
 ```
 
 `status` separates a **claim** from a **running service**. An entry reserves the
@@ -29,11 +29,16 @@ what stops a second app taking them — but only a `live` app is routed by the
 tunnel and linked from the apex page. Routing a planned app would publish a
 hostname that answers 502, which is worse than one that does not resolve.
 
-`path` is **optional and almost always absent**: a checkout lives at
-`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>` — unless it does not, and
-`media` is the one that does not, because it predates the layout and sits at
-`~/anime_site`. A leading `~/` means `$HOME`; anything else must be absolute,
-and the schema forbids whitespace in the value.
+`path` is **optional and no app sets it today**: a checkout lives at
+`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>`. `media` was the one
+exception, at `~/anime_site`, until that checkout was renamed to `~/media` on
+2026-09-21 and the key came out of its entry. A leading `~/` means `$HOME`;
+anything else must be absolute, and the schema forbids whitespace in the
+value.
+
+The key stays, and so do its tests. An app whose checkout cannot live at
+`<apps dir>/<name>` is a thing the registry has to be able to say, and the
+day one arrives is the wrong day to find out the expansion never worked.
 
 It lives here rather than being passed in because **everything else the deploy
 scripts act on is registry-derived**. It was a workflow input once, and a

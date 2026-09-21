@@ -264,13 +264,50 @@ it does not, two sessions take different locks and run pytest concurrently,
 which is precisely what the lock prevents. Worth doing on its own merits one
 day, not worth smuggling into a move.
 
-**Production is untouched and was never wrong.** `cg1618-db-1` in
-`cg1618_pgdata` has always belonged to the platform. Two `anime_site` names do
-survive there and are deliberately left: media's live database is still called
-`anime_site_db`, which `apps.yml` already says is not renamed by editing that
-line, and media's checkout on the box is still `~/anime_site`. Renaming the
-database costs downtime and a dump on the one app that is actually used; that
-is a maintenance window's work, not a tidy-up.
+**Production was never wrong, and was renamed separately.** `cg1618-db-1` in
+`cg1618_pgdata` has always belonged to the platform. Two `anime_site` names
+survived this move and were deliberately left to a maintenance window of their
+own, which they got on 2026-09-21 - see "The last two `anime_site` names in
+production" below.
+
+## The last two `anime_site` names in production
+
+Media's live database was `anime_site_db` and its checkout on the box was
+`~/anime_site`, both inherited from the app that existed before the platform
+did. On 2026-09-21 they became `media` and `~/media`.
+
+Nothing was wrong with them. They were left alone through the repository
+split and the development-database move, each time for the same reason:
+renaming a live database is downtime and a dump on the one app anybody
+actually uses, and a rename bundled into a change that is really about
+something else is how an outage acquires two candidate causes. The argument
+for finally doing it is not correctness, it is that the registry's `path` key
+existed to describe a single app, and `apps.yml` had to carry a paragraph of
+explanation at two separate fields for a reader to understand why one app was
+spelled differently from the other three.
+
+**What made it cheap to do deliberately** is that the shape of the platform
+had already absorbed most of the blast radius:
+
+- **The compose project was already `media`**, and had been since the split.
+  It is pinned in the box's `.env`, not derived from the directory, so moving
+  the checkout could not conjure a second volume. That is exactly the trap
+  "Git Worktrees" in `CLAUDE.md` describes, and it was already closed.
+- **The app's data is in bind mounts** (`static/covers`, `static/library`)
+  relative to the compose file, so it moved with the directory rather than
+  needing to be copied.
+- **The database name reaches the app through `.env` alone.** `ALTER DATABASE
+  ... RENAME TO` plus two edited lines was the whole change; no dump and
+  restore, because a rename is not a data operation.
+
+**What did not absorb it, and is the part worth remembering:** the five
+systemd units are installed copies under `/etc/systemd/system` with the
+checkout path written into `ExecStart` absolutely, and `deploy/backup/lib.sh`
+defaults `REPO_DIR` to the old path. Renaming the directory does not tell
+either of them. Both were updated in the same window; a rename that stopped
+at the git checkout would have looked entirely successful and produced its
+first failure at 04:00 the following morning, in a backup job nobody was
+watching.
 
 ## `media` is the reference because it is read, not because it is right
 

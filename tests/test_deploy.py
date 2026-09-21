@@ -225,7 +225,8 @@ def test_nothing_is_hard_coded_to_one_app():
 
 
 def test_the_app_checkout_is_resolvable_and_overridable():
-    # The media tracker's checkout on the box is ~/anime_site, not ~/media.
+    # No app sets a registry path today, so the default arm is the one in use
+    # - but both arms have to work before an app needs the other one.
     for script in SCRIPTS:
         body = code(script)
         assert "APPS_DIR" in body, script
@@ -556,9 +557,9 @@ def test_the_checkout_path_comes_from_the_registry_not_from_a_caller():
 
 def test_a_home_relative_registry_path_is_expanded():
     # The shell does not expand a tilde that arrives inside a variable, so a
-    # literal "~/anime_site" would become a directory called "~" beside the
+    # literal "~/somewhere" would become a directory called "~" beside the
     # runner's cwd - and the checkout guard would then say "no checkout at
-    # ~/anime_site", which is exactly what the registry says there is.
+    # ~/somewhere", which is exactly what the registry says there is.
     #
     # The mechanism, not its spelling: strip a literal "~/" off the front and
     # prepend HOME when that actually removed something. It was a `case` with

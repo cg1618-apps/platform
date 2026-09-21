@@ -9,8 +9,11 @@
 # is what stops a second app taking them - but only a `live` app is routed by
 # the tunnel. Routing a planned app would publish a hostname that answers 502.
 #
-# `path` is optional and almost always absent: a checkout lives at
-# `<apps dir>/<name>` unless it does not. `media` predates the layout.
+# `path` is optional and no app currently sets it: a checkout lives at
+# `<apps dir>/<name>`. The key stays because an app whose checkout cannot
+# live there is a thing the registry must be able to say, and saying it here
+# is what stops a caller supplying a path that names one app and hands over
+# another's checkout.
 #
 # `migrations` is a declaration, not a description. `true` means the app ships
 # an executable `deploy/migrations`, and bin/deploy REFUSES when it cannot find
@@ -23,25 +26,13 @@ apps:
   - name: media
     hostname: media.cg1618.com
     port: 8000
-    # anime_site_db, not media. This app predates the layout, like its
-    # ~/anime_site checkout below, and the name is what the box actually
-    # has. bin/deploy dumps the database this field names, so a tidier
-    # name here would dump a database that does not exist - which fails
-    # safe, but blocks every deploy until the two agree. Renaming the
-    # real database is a separate act with its own downtime and its own
-    # dump; it is not done by editing this line.
-    database: anime_site_db
+    database: media
     repo: git@github.com:cg1618-apps/media.git
     exposure: public
     health_path: /api/health
     migrations: true
     status: live
     description: Media tracker & database
-    # This app predates the layout: its checkout on the box is ~/anime_site,
-    # not ~/media. The path belongs here rather than in a workflow input,
-    # because everything else bin/deploy acts on is registry-derived - a
-    # caller-supplied path could name `travel` and hand it media's checkout.
-    path: "~/anime_site"
 
   - name: food
     hostname: food.cg1618.com

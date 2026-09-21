@@ -391,9 +391,9 @@ def classify_script() -> str:
 
 
 def test_no_shell_in_the_workflow_names_a_particular_app():
-    # The single-app workflow this replaces hard-coded ~/anime_site and
-    # deploy/deploy.sh. Generalising it must not leave one app's path in a
-    # command that every app now runs.
+    # The single-app workflow this replaces hard-coded one app's checkout
+    # path and deploy/deploy.sh. Generalising it must not leave one app's
+    # name in a command that every app now runs.
     for job in workflow()["jobs"].values():
         for step in run_steps(job):
             body = "\n".join(
@@ -401,7 +401,7 @@ def test_no_shell_in_the_workflow_names_a_particular_app():
                 for line in step["run"].splitlines()
                 if not line.lstrip().startswith("#")
             )
-            for name in ("anime_site", "media", "travel"):
+            for name in ("media", "travel", "food"):
                 assert name not in body, step.get("name", step.get("id"))
 
 

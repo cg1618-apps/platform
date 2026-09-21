@@ -126,8 +126,8 @@ def test_a_missing_gh_prints_the_command_rather_than_failing():
 def test_the_env_file_default_honours_the_registry_path():
     # This script read the registry for the database name and GUESSED the
     # directory, so `provision media` looked in ~/media/.env for an app whose
-    # checkout is ~/anime_site. The other three scripts resolve it the same
-    # way; this was the one that did not.
+    # checkout was then ~/anime_site. The other three scripts resolve it the
+    # same way; this was the one that did not.
     body = code()
     assert '"path"' in body
     assert "REG_PATH" in body

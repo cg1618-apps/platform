@@ -162,11 +162,12 @@ def test_every_registered_app_declares_migrations(registry):
 
 
 def test_path_is_optional(schema):
-    # Almost every app's checkout is at <apps dir>/<name>. The key exists for
-    # the one that predates the layout.
+    # Every app's checkout is at <apps dir>/<name>. The key exists for an app
+    # whose checkout cannot be, which the registry must be able to say even
+    # while no app is saying it.
     jsonschema.validate(instance={"apps": [entry()]}, schema=schema)
     jsonschema.validate(
-        instance={"apps": [entry(path="~/anime_site")]}, schema=schema
+        instance={"apps": [entry(path="~/legacy-checkout")]}, schema=schema
     )
     jsonschema.validate(instance={"apps": [entry(path="/srv/media")]}, schema=schema)
 
@@ -174,7 +175,7 @@ def test_path_is_optional(schema):
 def test_a_path_must_be_absolute_or_home_relative(schema):
     # A relative path would be resolved against whatever directory the deploy
     # script happens to be in, which is the app's own checkout by then.
-    for bad in ("anime_site", "./anime_site", "~anime_site"):
+    for bad in ("legacy-checkout", "./legacy-checkout", "~legacy-checkout"):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance={"apps": [entry(path=bad)]}, schema=schema)
 
@@ -188,14 +189,13 @@ def test_a_path_may_not_contain_whitespace(schema):
         )
 
 
-def test_the_one_app_that_needs_a_path_has_one(registry):
-    # The media tracker's checkout on the box is ~/anime_site, and that fact
-    # has to live somewhere a caller cannot contradict.
-    by_name = {app["name"]: app for app in registry["apps"]}
-    assert by_name["media"]["path"] == "~/anime_site"
-    for name, app in by_name.items():
-        if name != "media":
-            assert "path" not in app, name
+def test_no_app_sets_a_path(registry):
+    # `media` set one until its checkout was renamed from ~/anime_site to
+    # ~/media on 2026-09-21; every app is now at <apps dir>/<name>. The key
+    # and its expansion stay tested above, because the next app that cannot
+    # live there needs them to work on the day it arrives, not afterwards.
+    for app in registry["apps"]:
+        assert "path" not in app, app["name"]
 
 
 def _entry(**overrides):

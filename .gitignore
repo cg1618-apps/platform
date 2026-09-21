@@ -17,3 +17,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Per-session Claude Code permissions, per-machine like the rest of this block.
+.claude/settings.local.json

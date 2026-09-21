@@ -72,7 +72,8 @@ read -r SLUG REG_PATH <<<"${registry}"
 # optional `path`, then <apps dir>/<name>. bin/deploy, bin/health and
 # bin/rollback all resolve it this way. This script reading the registry for
 # the database name while GUESSING the directory is how `provision media`
-# came to look in ~/media/.env for an app whose checkout is ~/anime_site.
+# came to look in ~/media/.env for an app whose checkout was then
+# ~/anime_site.
 if [ -z "${ENV_FILE}" ]; then
     APP_DIR="${APPS_DIR:-${HOME}}/${APP}"
     if [ "${REG_PATH}" != "-" ]; then

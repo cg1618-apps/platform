@@ -56,6 +56,8 @@ the platform sequence proceeds, the deploy pipeline and the apex page. It
 connects the applications by configuration, not by git pointers: it knows about
 them and does not contain them.
 
+- `docs/setup-local.md` — setting up a development machine: the platform,
+  the apps cloned inside it, and the shared development database.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
 - `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and the
   contract an app joins them on.

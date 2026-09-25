@@ -109,3 +109,12 @@ def test_the_apex_is_routed_even_though_it_is_not_in_the_registry():
     out = yaml.safe_load(render({"apps": [app()]}))
     rules = {r["hostname"]: r["service"] for r in out["ingress"] if "hostname" in r}
     assert rules["cg1618.com"] == "http://apex:8007"
+
+
+def test_ssh_is_routed_to_the_host_even_though_it_is_not_in_the_registry():
+    # SSH to the box is infrastructure like the apex: no entry of its own,
+    # emitted regardless of the registry, and routed to the HOST's sshd
+    # rather than to a service on the cg1618 network.
+    out = yaml.safe_load(render({"apps": []}))
+    rules = {r["hostname"]: r["service"] for r in out["ingress"] if "hostname" in r}
+    assert rules["ssh.cg1618.com"] == "ssh://host.docker.internal:22"

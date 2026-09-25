@@ -227,6 +227,36 @@ knowledge. That costs nothing real — every hostname with a Cloudflare
 certificate is already in the public Certificate Transparency logs, so hiding
 it from the apex page would have hidden it from nobody.
 
+## SSH to the box goes through the tunnel, and is not in the registry
+
+The box is reachable on the home LAN and nowhere else, so the company machine
+could not reach it at all. `ssh.cg1618.com` routes through the tunnel that
+already exists: no port is opened on either router, and nothing new runs on
+the box. A second overlay such as Tailscale would do the same job with another
+daemon, another account and another thing to keep patched, when the platform
+already has a tunnel with an authentication gate in front of it.
+
+**Cloudflare Access is the gate, and sshd's own key check stands behind it.**
+Access decides who may open a connection at all; sshd still wants the key.
+Neither is trusted to be the only one.
+
+**It is emitted by `bin/generate_ingress.py` like the apex, not listed in
+`apps.yml` like `logs`.** The decision above put `logs` in the registry because
+a hostname outside it went unprobed. SSH does not fit the registry. It has no
+HTTP service, no port on the `cg1618` network, no health path and no
+`<name>-app` alias, so every field the generator and `bin/deploy` read would be
+a placeholder or a special case. It would also appear on the public apex page
+as an app. So `bin/check-exposure --all` probes it without an entry. The
+hostname lives once, as `SSH_HOSTNAME` in the generator, and the check imports
+it, so the two cannot drift. An executed test refuses an ungated SSH hostname
+and a mirror passes a gated one. The per-app check that deploys run does not
+probe it, because a media deploy has nothing to say about SSH.
+
+**sshd stays on the host, not in a container.** The tunnel reaches it at
+`host.docker.internal`, which `extra_hosts: host-gateway` maps to the
+`cg1618` bridge's gateway. sshd already listens on `0.0.0.0`, so nothing on
+the box changed.
+
 ## The development database belongs to the platform
 
 One PostgreSQL on each development machine, holding one database per app, in

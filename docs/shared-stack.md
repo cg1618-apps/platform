@@ -1,6 +1,6 @@
 # The shared stack
 
-Last verified: 2026-09-19
+Last verified: 2026-09-25
 
 `docker-compose.prod.yml` in this repository runs the half of the box that
 belongs to no single application: one PostgreSQL and one Cloudflare Tunnel. It
@@ -77,6 +77,25 @@ ssh -L 5433:localhost:5432 homelab    # then psql -h localhost -p 5433
 command line from `TUNNEL_ID`, which keeps the file static and committable. The
 credentials JSON is the secret, mounted read-only from the path
 `CLOUDFLARED_CREDENTIALS` names.
+
+**The tunnel runs over HTTP/2 (TCP), not cloudflared's default of QUIC.** The
+box's upload is about 17 Mbps and lossy. Over QUIC, one tunnel connection lost
+6-10% of its packets, and responses the app had already answered sat unfinished
+for 30 s until Cloudflare's edge cancelled them — a page of covers stalled every
+other request behind it, while the box sat idle. TCP on the same line lost about
+3% and still filled the upload. `--protocol http2` is on the command line in
+`docker-compose.prod.yml`, and `tests/test_deploy.py` fails if it goes.
+Changing it takes `docker compose -f docker-compose.prod.yml up -d cloudflared`
+on the box, which drops every hostname for the few seconds the tunnel takes to
+re-register.
+
+**What the box cannot change is which Cloudflare data centre a visitor
+reaches.** On the free plan that follows the visitor's ISP: a Chunghwa (HiNet)
+line in Taiwan is served from San Jose, a mobile carrier from Singapore, while
+the tunnel itself registers in Taipei and Kaohsiung. Every request that is not
+cached at the edge therefore crosses to that data centre and back, around
+130 ms from HiNet before any transfer. Fewer and smaller requests are the lever
+the box has; the route is not.
 
 The tunnel has no `depends_on` on any application either. It answers 502 for a
 hostname whose service is not up and recovers on its own when it is, which is

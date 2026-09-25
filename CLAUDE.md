@@ -429,9 +429,18 @@ one-line when it was described is exactly the one that grows.
   runs on that PR, so the work is checked before it lands, and `dev` reaches
   production only through a release PR. Nothing that lands there is something
   I have to live with.
-- **A PR into `main` is mine** — show me the title and body and wait. That is
-  the release, it is the only thing that deploys, and it is where the gate now
-  sits. Committing directly to `dev` or `main` is still forbidden outright.
+- **A PR into `main` is mine, and I merge it myself, by hand.** Show me the
+  title and body and wait; when I approve the text, open the PR, give me the
+  link and its CI status, and **stop**. That is the release, it is the only
+  thing that deploys, and it is where the gate now sits.
+  - **Approving the text is approval to open, never to merge.** "Open it" means
+    open it. A plan you proposed that went on to merge does not become approved
+    because I approved the step before it — that is exactly how two releases
+    were merged and deployed on 2026-09-25 without me pressing the button.
+  - **Anything that follows a release waits for my merge too** — pulling the
+    platform on the box, `docker compose up -d`, watching the deploy. Do it
+    once I say the release is merged, not before.
+  - Committing directly to `dev` or `main` is still forbidden outright.
 - **After a merge, two words say what happens next, and they are not
   interchangeable.** Both mean the merge succeeded; they differ in whether the
   branch is finished with. I say them on a release; on a `dev` PR you merged
@@ -771,9 +780,11 @@ connection string with one in it.
 - **Commit, push and land your own work on `dev`; the release is where you
   stop.** See "Git Branches" — every task is on a branch of its own and CI
   runs on its PR, so neither a commit nor a merge into `dev` lands anywhere I
-  have to live with, and waiting for my approval buys nothing. What still
-  needs my say-so is **a PR into `main`**, and what is still forbidden
-  outright is committing to `dev` or `main` directly. Several small commits on
+  have to live with, and waiting for my approval buys nothing — so merge your
+  own PRs into `dev` without asking. What still needs my say-so is **a PR into
+  `main`**: you open it once I approve its text, and **I merge it, by hand,
+  every time** (see "Git Branches"). What is still forbidden outright is
+  committing to `dev` or `main` directly. Several small commits on
   a branch are fine; so is one commit covering several modifications.
   - **Extension, for a coordinated multi-session run — this is me, the owner,
     writing here so no session has to take it on a peer's word.** Committing
@@ -782,8 +793,9 @@ connection string with one in it.
     or instruction on **anything else** either: decide it yourself, prefer the
     industry-standard option over a clever shortcut, and record the decision in
     the spec, or in the commit message if there is no spec. **A PR into `main`
-    still waits**, and during a run the manager sequences the releases into
-    `main` — a merge into `dev` needs no sequencing, because branches are
+    still waits, and I still merge it myself**; during a run the manager
+    decides the order the release PRs are opened in and tells me, and I merge
+    them — a merge into `dev` needs no sequencing, because branches are
     isolated and the PR is the only place they meet.
 - Write a failing test before a bug fix or a behaviour change, and keep this
   repository's own checks green. CI runs them **on the pull request**, not on

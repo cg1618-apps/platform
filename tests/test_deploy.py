@@ -946,6 +946,7 @@ url="${@: -1}"
 gated() { printf 'HTTP/1.1 302 Found\r\nlocation: https://team.cloudflareaccess.com/login\r\n\r\n'; }
 open_()  { printf 'HTTP/1.1 %s OK\r\n\r\n' "${1:-200}"; }
 case "${url}" in
+    https://ssh.cg1618.com) if [ -n "${SSH_OPEN:-}" ]; then open_ 400; else gated; fi ;;
     */api/edit) gated ;;
     */api)      if [ -n "${WIDE:-}" ]; then gated; else open_ 404; fi ;;
     *)          open_ 200 ;;
@@ -954,13 +955,19 @@ esac
 
 
 def build_exposure_tree(tmp: Path) -> Path:
-    """A miniature platform checkout: the real script, a fixture registry."""
+    """A miniature platform checkout: the real script, a fixture registry.
+
+    generate_ingress.py comes too, because --all takes the SSH hostname from it.
+    """
     root = tmp / "platform"
     (root / "bin").mkdir(parents=True)
     script = root / "bin" / "check-exposure"
     script.write_text(CHECK_EXPOSURE.read_text(encoding="utf-8"),
                       encoding="utf-8", newline="\n")
     script.chmod(0o755)
+    (root / "bin" / "generate_ingress.py").write_text(
+        (ROOT / "bin" / "generate_ingress.py").read_text(encoding="utf-8"),
+        encoding="utf-8", newline="\n")
     (root / "apps.yml").write_text(WIDE_REGISTRY, encoding="utf-8", newline="\n")
 
     stub_dir = tmp / "stub"
@@ -971,13 +978,16 @@ def build_exposure_tree(tmp: Path) -> Path:
     return root
 
 
-def run_exposure(tmp: Path, wide: bool) -> subprocess.CompletedProcess:
+def run_exposure(tmp: Path, wide: bool,
+                 ssh_open: bool = False) -> subprocess.CompletedProcess:
     exe = usable_bash()
     root = build_exposure_tree(tmp)
     env = dict(os.environ)
     env["PATH"] = f"{(tmp / 'stub').as_posix()}{os.pathsep}{env['PATH']}"
     if wide:
         env["WIDE"] = "1"
+    if ssh_open:
+        env["SSH_OPEN"] = "1"
     return subprocess.run(
         [exe, str(root / "bin" / "check-exposure"), "--all"],
         capture_output=True, text=True, env=env,
@@ -1029,6 +1039,9 @@ def test_the_same_fixture_passes_when_the_gate_is_the_right_width():
         result = run_exposure(tmp, wide=False)
         assert result.returncode == 0, result.stdout + result.stderr
         assert "not too wide" in result.stdout, result.stdout
+        # The mirror of test_an_ungated_ssh_hostname_is_refused: proves the
+        # SSH probe ran and passed, not that it was skipped.
+        assert "ssh: gated by Access, as declared" in result.stdout, result.stdout
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1067,3 +1080,35 @@ def test_the_tunnel_runs_over_tcp():
     command = compose["services"]["cloudflared"]["command"].split()
 
     assert command[command.index("--protocol") + 1] == "http2"
+
+
+def test_the_tunnel_can_reach_the_hosts_sshd():
+    """ssh.cg1618.com routes to host.docker.internal, which only resolves
+    inside a container when it is mapped explicitly. Without the mapping the
+    rule is accepted and every SSH connection fails at the edge."""
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    )
+    extra_hosts = compose["services"]["cloudflared"]["extra_hosts"]
+
+    assert "host.docker.internal:host-gateway" in extra_hosts
+
+
+
+def test_an_ungated_ssh_hostname_is_refused():
+    """SSH is not in apps.yml, so iterating the registry would never probe it.
+
+    It is the hostname that must never answer ungated, and a DNS record
+    created before its Access application is exactly how art went public. The
+    mirror is test_the_same_fixture_passes_when_the_gate_is_the_right_width,
+    which runs the same tree with ssh gated and expects exit 0.
+    """
+    if not exposure_harness_works():
+        pytest.skip("needs bash and a python3 that can import yaml")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        result = run_exposure(tmp, wide=False, ssh_open=True)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "ssh: DECLARED cloudflare-access BUT ANSWERS" in result.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

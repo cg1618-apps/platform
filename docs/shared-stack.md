@@ -102,6 +102,46 @@ hostname whose service is not up and recovers on its own when it is, which is
 the correct behaviour for one tunnel serving several apps with independent
 deploy cadences.
 
+## SSH through the tunnel
+
+`ssh.cg1618.com` routes to the box's own sshd, so the box can be reached from
+anywhere and not only from the home LAN. The ingress rule is
+`ssh://host.docker.internal:22`, and the `extra_hosts` entry on `cloudflared`
+is what makes that name resolve inside the container. The reasoning is in
+[notes/decisions.md](notes/decisions.md).
+
+**Access comes before DNS.** A DNS record with no Access application behind it
+puts sshd on the open internet with only its key check between it and everyone,
+which is the same mistake `art` made over HTTP. So these steps happen in the
+Cloudflare dashboard, in this order:
+
+1. Zero Trust → Access → Applications → add a **self-hosted** application for
+   `ssh.cg1618.com`, with a policy allowing only the owner.
+2. Then add the DNS record: a proxied `CNAME` from `ssh` to
+   `<TUNNEL_ID>.cfargotunnel.com`. `cloudflared tunnel route dns <tunnel>
+   ssh.cg1618.com` does the same thing.
+3. Run `bin/check-exposure --all`. It must print `ssh: gated by Access, as
+   declared`.
+
+**On a client**, install `cloudflared` (`winget install --id
+Cloudflare.cloudflared` on Windows) and add a host to `~/.ssh/config`:
+
+```
+Host homelab-tunnel
+    HostName ssh.cg1618.com
+    User cgentle1618
+    ProxyCommand cloudflared access ssh --hostname %h
+```
+
+On Windows, if `ssh` cannot find it, give `ProxyCommand` the full path to
+`cloudflared.exe`. The first connection opens a browser to sign in to Access,
+and the token is cached after that. `ssh -L 5433:localhost:5432
+homelab-tunnel` forwards PostgreSQL exactly as the LAN alias does.
+
+`homelab` in `~/.ssh/config` stays the LAN route. It is faster, and it still
+works when the tunnel is down, which is exactly when the box most needs to be
+reached.
+
 ## The apex page
 
 `cg1618.com` is served by a third container in this project: `nginx:alpine`

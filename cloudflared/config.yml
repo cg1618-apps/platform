@@ -20,6 +20,11 @@ ingress:
   - hostname: cg1618.com
     service: http://apex:8007
 
+  # SSH to the box. Cloudflare Access MUST cover this hostname before its
+  # DNS record exists - bin/check-exposure --all asserts that it does.
+  - hostname: ssh.cg1618.com
+    service: ssh://host.docker.internal:22
+
   - hostname: media.cg1618.com
     service: http://media-app:8000
   - hostname: food.cg1618.com

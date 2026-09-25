@@ -35,6 +35,19 @@ scope and delivering half of it.
 This file's own prose predates the distinction in places and uses
 "application" for what is here called an app; read the two as the same thing.
 
+## Terminology: "edit pages"
+
+**"Edit pages" is the umbrella, not one of the three operations.** When the
+owner asks to edit pages, that means **add, modify and delete** pages — and a
+request phrased that way is satisfied by whichever of the three the change
+actually needs, including all of them.
+
+So do not read "edit" narrowly as "change what is already there". A page that
+should no longer exist is deleted, and a page that is missing is added, under
+the same instruction; neither needs asking for separately. What still needs
+asking is *which* pages, when that is ambiguous — the verb is settled, the
+scope is not.
+
 ## What this repository is
 
 The master repository for the box. It owns `apps.yml` — the registry every
@@ -43,6 +56,8 @@ the platform sequence proceeds, the deploy pipeline and the apex page. It
 connects the applications by configuration, not by git pointers: it knows about
 them and does not contain them.
 
+- `docs/setup-local.md` — setting up a development machine: the platform,
+  the apps cloned inside it, and the shared development database.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
 - `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and the
   contract an app joins them on.

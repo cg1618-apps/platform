@@ -1050,3 +1050,20 @@ def test_the_parent_is_derived_rather_than_declared():
 def test_two_prefixes_under_one_parent_probe_it_once():
     body = code(CHECK_EXPOSURE)
     assert "probed_parents" in body
+
+
+def test_the_tunnel_runs_over_tcp():
+    """The tunnel's upload crosses a lossy home line, and QUIC stalled on it.
+
+    Over QUIC one tunnel connection lost 6-10% of its packets, and cover
+    responses the app had already answered sat unfinished for 30 s until the
+    edge cancelled them - every other request queued behind them. TCP on the
+    same line lost about 3% and still filled the upload. So the protocol is
+    pinned rather than left to cloudflared's default, which is QUIC.
+    """
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    )
+    command = compose["services"]["cloudflared"]["command"].split()
+
+    assert command[command.index("--protocol") + 1] == "http2"

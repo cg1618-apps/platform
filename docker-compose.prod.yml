@@ -64,7 +64,11 @@ services:
     logging: *log_rotation
     # --no-autoupdate: the image is the unit of upgrade here, and an in-place
     # self-update would restart the tunnel outside anyone's knowledge.
-    command: tunnel --no-autoupdate --config /etc/cloudflared/conf/config.yml run ${TUNNEL_ID}
+    #
+    # --protocol http2: TCP, not the QUIC default. The box's upload is lossy,
+    # and over QUIC finished responses stalled for 30 s until the edge gave
+    # up on them. See docs/shared-stack.md, "The tunnel".
+    command: tunnel --no-autoupdate --protocol http2 --config /etc/cloudflared/conf/config.yml run ${TUNNEL_ID}
     volumes:
       # Generated from apps.yml by bin/generate_ingress.py; CI fails if the
       # committed file and the registry disagree.

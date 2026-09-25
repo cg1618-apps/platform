@@ -152,3 +152,102 @@ def test_the_old_volume_is_only_ever_read():
     assert "$oldVolume = 'anime_site_postgres_anime_data'" in body
     assert "${oldVolume}:/from:ro" in body
     assert "volume rm" not in body
+
+
+# --- Windows PowerShell 5.1 --------------------------------------------------
+#
+# The company machine has Windows PowerShell 5.1 and no pwsh 7. 5.1 turns a
+# native command's stderr into ErrorRecords *when that stderr is redirected*,
+# and `$ErrorActionPreference = 'Stop'` then makes benign progress output throw.
+# This script did that twice and failed on 5.1 while working at home, which is
+# the worst shape a per-machine difference can take: the script that exists to
+# protect four apps' data is the one that will not run.
+
+
+def _invoke_native_spans(body):
+    """Character ranges covered by an `Invoke-Native { ... }` call.
+
+    Brace-matched rather than line-matched, because the call may wrap a
+    multi-line scriptblock - and then the redirection is on a line of its own,
+    inside the span but not on the line that names the helper.
+    """
+    spans = []
+    needle = "Invoke-Native {"
+    start = body.find(needle)
+    while start != -1:
+        depth = 0
+        for i in range(start + len(needle) - 1, len(body)):
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append((start, i))
+                    break
+        start = body.find(needle, start + 1)
+    return spans
+
+
+def _redirecting_lines():
+    """Every line that redirects a stream, with its 1-based number.
+
+    Each is paired with whether it sits inside an Invoke-Native span.
+    """
+    body = DEV_DB_PS1.read_text(encoding="utf-8")
+    spans = _invoke_native_spans(body)
+    out = []
+    offset = 0
+    for n, line in enumerate(body.splitlines(), start=1):
+        if ("2>&1" in line or "2>$null" in line or "*>$null" in line) and not line.lstrip().startswith("#"):
+            # Overlap, not containment of the line's first character: on a
+            # single-line call the span begins mid-line, after that character.
+            line_end = offset + len(line)
+            guarded = any(a <= line_end and offset <= b for a, b in spans)
+            out.append((n, line, guarded))
+        offset += len(line) + 1
+    return out
+
+
+def test_every_redirecting_native_call_relaxes_the_error_preference():
+    """Otherwise 5.1 throws on output that is not an error at all.
+
+    Asserting the helper merely EXISTS would be vacuous - it passes while a
+    call still bypasses it. So this asserts the property on every line that
+    redirects, which is what actually has to hold.
+    """
+    offenders = [
+        f"line {n}: {line.strip()}"
+        for n, line, guarded in _redirecting_lines()
+        if not guarded
+    ]
+    assert not offenders, "redirecting stderr without Invoke-Native:\n" + "\n".join(offenders)
+
+
+def test_there_is_something_to_check():
+    """The test above is vacuously true if the script stops redirecting at all.
+
+    A negative assertion over a set is satisfied by an empty set, so pin the
+    set down: these redirections are deliberate and are expected to stay.
+    """
+    assert _redirecting_lines(), "no redirections left - the test above now proves nothing"
+
+
+def test_the_helper_restores_the_preference_it_changed():
+    body = DEV_DB_PS1.read_text(encoding="utf-8")
+    assert "function Invoke-Native" in body
+    # finally, not a bare assignment afterwards: a native call that throws
+    # would otherwise leave the whole script running with 'Continue', and the
+    # guards below it are the reason this script is trusted.
+    assert "finally" in body
+
+
+def test_psql_is_not_handed_an_empty_user():
+    """`-U` with an empty value swallows the next argument.
+
+    It produced `missing "=" after "SELECT" in connection info string`, which
+    says nothing about the cause. The script already knows an unset
+    POSTGRES_USER is normal in this shell, so it must check before asking.
+    """
+    body = DEV_DB_PS1.read_text(encoding="utf-8")
+    assert "psql -U $env:POSTGRES_USER" not in body
+    assert "if ($pgUser)" in body

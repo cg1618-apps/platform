@@ -12,6 +12,8 @@ and ignored by it, so the histories never meet.
 - `apps.yml` — one entry per application; everything else derives from it.
 - `schema/apps.schema.json` — the shape `apps.yml` must have.
 - `bin/validate_apps.py` — the policy a schema cannot express.
+- `docs/setup-local.md` — setting up a development machine: the platform,
+  the four apps inside it, and the shared development database.
 - `docs/registry.md` — what `apps.yml` guarantees, and how an app is added.
 - `docs/shared-stack.md` — the PostgreSQL and tunnel every app shares, and
   the contract an app joins them on.

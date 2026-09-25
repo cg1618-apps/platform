@@ -44,6 +44,24 @@ if (-not (Test-Path $composeFile)) {
 
 $compose = @('docker', 'compose', '-f', $composeFile)
 
+# --- Windows PowerShell 5.1 turns a native command's stderr into ErrorRecords
+# --- WHEN THAT STDERR IS REDIRECTED, and $ErrorActionPreference = 'Stop' then
+# --- makes it terminating - so `compose create` throws on " Network ...
+# --- Creating ", which is progress output rather than an error. pwsh 7 does
+# --- not do this, which is why this script ran at home and failed on the
+# --- machine that has only 5.1.
+# ---
+# --- Exit codes are what this script actually checks ($LASTEXITCODE below), so
+# --- the preference is relaxed for the duration of the call and restored in a
+# --- finally - not afterwards, because a call that did throw would otherwise
+# --- leave every guard below running under 'Continue'.
+function Invoke-Native {
+    param([Parameter(Mandatory = $true)][scriptblock]$Command)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Command } finally { $ErrorActionPreference = $prev }
+}
+
 # --- Migrate -----------------------------------------------------------------
 
 if ($Migrate) {
@@ -68,7 +86,7 @@ if ($Migrate) {
     # --- created by Docker Compose" - true, harmless, and exactly the kind of
     # --- warning that trains you to ignore warnings.
     Write-Host '==> Creating the volume through compose, so it carries compose''s labels' -ForegroundColor Cyan
-    & $compose[0] $compose[1..3] create 2>&1 | Out-Null
+    Invoke-Native { & $compose[0] $compose[1..3] create 2>&1 } | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'compose create failed - are POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB set in this directory''s .env?'
     }
@@ -141,7 +159,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host '==> Waiting for it to accept connections' -ForegroundColor Cyan
 $ready = $false
 foreach ($attempt in 1..60) {
-    $status = docker inspect -f '{{.State.Health.Status}}' $container 2>$null
+    $status = Invoke-Native { docker inspect -f '{{.State.Health.Status}}' $container 2>$null }
     if ($status -eq 'healthy') { $ready = $true; break }
     Start-Sleep -Seconds 2
 }
@@ -153,8 +171,18 @@ if (-not $ready) {
 
 # --- What is actually in there. A migration that silently copied nothing looks
 # --- exactly like a working empty database until an app cannot find its data.
-$databases = docker exec $container psql -U $env:POSTGRES_USER -tAc `
-    "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname" 2>$null
+# --- Asked only when the user is actually set: `-U` with an empty value makes
+# --- psql swallow the next argument, and it answers `missing "=" after
+# --- "SELECT" in connection info string` - which says nothing about the cause.
+# --- An unset POSTGRES_USER in this shell is normal, and the else below says so.
+$pgUser = $env:POSTGRES_USER
+$databases = $null
+if ($pgUser) {
+    $databases = Invoke-Native {
+        docker exec $container psql -U $pgUser -tAc `
+            "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname" 2>$null
+    }
+}
 
 Write-Host ''
 Write-Host "==> $container is up on 127.0.0.1:5432" -ForegroundColor Green

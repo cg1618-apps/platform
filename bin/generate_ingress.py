@@ -49,6 +49,22 @@ APEX = """  # The apex page, which is infrastructure rather than an application:
 
 """
 
+# SSH to the box itself, for the machines that cannot reach it on the LAN.
+# Like the apex, it is infrastructure with no entry in apps.yml: there is no
+# HTTP service, no port on the cg1618 network and nothing to deploy. sshd runs
+# on the host, so the container reaches it through the host-gateway alias that
+# docker-compose.prod.yml gives cloudflared.
+#
+# bin/check-exposure imports SSH_HOSTNAME, so the name is written once.
+SSH_HOSTNAME = "ssh.cg1618.com"
+
+SSH = f"""  # SSH to the box. Cloudflare Access MUST cover this hostname before its
+  # DNS record exists - bin/check-exposure --all asserts that it does.
+  - hostname: {SSH_HOSTNAME}
+    service: ssh://host.docker.internal:22
+
+"""
+
 CATCH_ALL = """
   # Required catch-all. cloudflared refuses to start without it, and it must be
   # the last rule.
@@ -58,7 +74,7 @@ CATCH_ALL = """
 
 def render(registry: dict) -> str:
     """Return the full contents of cloudflared/config.yml."""
-    parts = [HEADER, APEX]
+    parts = [HEADER, APEX, SSH]
     for app in registry["apps"]:
         # A planned app has reserved its hostname, port and database, but
         # nothing is serving them yet. Routing it would publish a hostname that

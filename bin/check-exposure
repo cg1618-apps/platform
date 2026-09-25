@@ -67,6 +67,14 @@ if want != "--all":
     # otherwise would fail the deploy of every app before the
     # release that publishes its hostname.
     live = [a for a in named if a.get("status") == "live"]
+if want == "--all":
+    # SSH to the box is infrastructure, so it is not in the registry, but it
+    # is the one hostname that must never answer ungated. Its name comes from
+    # the generator that routes it, so the two cannot disagree.
+    sys.path.insert(0, sys.argv[3])
+    from generate_ingress import SSH_HOSTNAME
+    live.append({"name": "ssh", "hostname": SSH_HOSTNAME,
+                 "exposure": "cloudflare-access"})
 for a in live:
     # Paths are joined with commas and default to "-": the shell reads these
     # lines field by field on whitespace, so a field must never be empty or
@@ -78,7 +86,7 @@ for a in live:
         a["name"] + " " + a["hostname"] + " " + a["exposure"] + " " + gated + chr(10)
     )
     sys.stdout.buffer.write(line.encode())
-' "${APP:---all}" "${PLATFORM_DIR}/apps.yml")"
+' "${APP:---all}" "${PLATFORM_DIR}/apps.yml" "${PLATFORM_DIR}/bin")"
 
 if [ -z "${targets}" ]; then
     if [ "${ALL}" -eq 1 ]; then

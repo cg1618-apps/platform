@@ -254,8 +254,11 @@ probe it, because a media deploy has nothing to say about SSH.
 
 **sshd stays on the host, not in a container.** The tunnel reaches it at
 `host.docker.internal`, which `extra_hosts: host-gateway` maps to the
-`cg1618` bridge's gateway. sshd already listens on `0.0.0.0`, so nothing on
-the box changed.
+host's address on Docker's default bridge, `docker0` (`172.17.0.1`). That is
+not the `cg1618` network's own gateway, even though the container sits on
+`cg1618`. sshd already listens on `0.0.0.0`, so it answers on either address
+and nothing on the box changed. A session through the tunnel shows up in sshd
+as coming from the `cloudflared` container's `cg1618` address.
 
 ## The development database belongs to the platform
 

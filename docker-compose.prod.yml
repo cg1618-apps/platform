@@ -89,7 +89,8 @@ services:
       - cg1618
     # ssh.cg1618.com routes to ssh://host.docker.internal:22, and sshd runs on
     # the host rather than on this network. host-gateway resolves to the
-    # bridge's gateway, which sshd answers on because it listens on 0.0.0.0.
+    # host's address on docker0 (172.17.0.1), not the cg1618 gateway, and
+    # sshd answers there because it listens on 0.0.0.0.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # No depends_on for the applications: they are separate compose projects

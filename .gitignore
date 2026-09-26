@@ -7,6 +7,15 @@
 /health/
 /money/
 /travel/
+# ...and so are each app's worktrees, which its helper creates beside it as
+# ../<app>_<topic>, landing here too.
+/media_*/
+/art_*/
+/food_*/
+/journal_*/
+/health_*/
+/money_*/
+/travel_*/
 
 # Per-machine, never committed.
 CLAUDE.local.md

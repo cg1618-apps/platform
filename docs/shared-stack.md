@@ -110,6 +110,11 @@ anywhere and not only from the home LAN. The ingress rule is
 is what makes that name resolve inside the container. The reasoning is in
 [notes/decisions.md](notes/decisions.md).
 
+**sshd accepts keys only.** `sudo sshd -T | grep passwordauthentication`
+answers `no`. It is the check behind Access, not a replacement for it, and on a
+rebuilt box it must be confirmed before the `ssh` DNS record points there.
+Reading it needs root, so no script here can check it.
+
 **Access comes before DNS.** A DNS record with no Access application behind it
 puts sshd on the open internet with only its key check between it and everyone,
 which is the same mistake `art` made over HTTP. So these steps happen in the

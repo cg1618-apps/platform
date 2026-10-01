@@ -589,9 +589,9 @@ one checkout has one `HEAD`. See "Git Worktrees".
 
 ## The manager session
 
-**When I say "manage", this is the job.** Start it in
-`C:\Users\cgent\Documents\cg1618` — the platform repository — and do no
-feature work in it.
+**When I say "manage", this is the job.** Start it in the platform
+repository — its path differs per machine, and `CLAUDE.local.md` names it —
+and do no feature work in it.
 
 It exists because the polyrepo isolates the apps from each other but not from
 the two things they share: the platform repository and the box.
@@ -642,7 +642,10 @@ runs are not.
 ```bash
 # One lock for the whole machine, across every repository and every tree.
 # The name is historical - what matters is that everyone takes the SAME one.
-LOCK=/c/Users/cgent/AppData/Local/Temp/anime_site_pytest.lock
+# $USERNAME, not a literal user: the two machines have different ones, and
+# under a user that does not exist every mkdir fails, so the loop never takes
+# the lock and never exits.
+LOCK=/c/Users/$USERNAME/AppData/Local/Temp/anime_site_pytest.lock
 until mkdir "$LOCK" 2>/dev/null; do sleep 10; done
 venv/Scripts/python.exe -m pytest -q; rc=$?
 rmdir "$LOCK"; exit $rc

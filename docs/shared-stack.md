@@ -64,7 +64,9 @@ by pointing this project at the old `media_pgdata`: compose prefixes a volume
 name with its project, and a volume named after one application holding every
 application's data is a lie that outlives whoever shrugged at it.
 
-Nothing publishes a port. To reach PostgreSQL from a laptop, forward it:
+Nothing publishes a port. To reach PostgreSQL from a laptop, forward it over
+SSH — through the tunnel by default, see [SSH through the
+tunnel](#ssh-through-the-tunnel):
 
 ```bash
 ssh -L 5433:localhost:5432 homelab    # then psql -h localhost -p 5433
@@ -104,8 +106,10 @@ deploy cadences.
 
 ## SSH through the tunnel
 
-`ssh.cg1618.com` routes to the box's own sshd, so the box can be reached from
-anywhere and not only from the home LAN. The ingress rule is
+**This is the default way into the box, from every machine.** `ssh.cg1618.com`
+routes to the box's own sshd, so the box can be reached from anywhere and not
+only from the home LAN. The direct LAN connection is the fallback, kept for
+when the tunnel is down. The ingress rule is
 `ssh://host.docker.internal:22`, and the `extra_hosts` entry on `cloudflared`
 is what makes that name resolve inside the container. The reasoning is in
 [notes/decisions.md](notes/decisions.md).
@@ -129,23 +133,35 @@ Cloudflare dashboard, in this order:
    declared`.
 
 **On a client**, install `cloudflared` (`winget install --id
-Cloudflare.cloudflared` on Windows) and add a host to `~/.ssh/config`:
+Cloudflare.cloudflared` on Windows) and give `~/.ssh/config` two hosts. The
+plain name is the tunnel, so every `ssh homelab` in these docs goes through
+Cloudflare; the LAN route has to be asked for by name:
 
 ```
-Host homelab-tunnel
+Host homelab
     HostName ssh.cg1618.com
     User cgentle1618
     ProxyCommand cloudflared access ssh --hostname %h
+
+Host homelab-lan
+    HostName <the box's LAN address>
+    User cgentle1618
 ```
 
 On Windows, if `ssh` cannot find it, give `ProxyCommand` the full path to
 `cloudflared.exe`. The first connection opens a browser to sign in to Access,
-and the token is cached after that. `ssh -L 5433:localhost:5432
-homelab-tunnel` forwards PostgreSQL exactly as the LAN alias does.
+and the token is cached after that.
 
-`homelab` in `~/.ssh/config` stays the LAN route. It is faster, and it still
-works when the tunnel is down, which is exactly when the box most needs to be
-reached.
+**`homelab-lan` is the fallback, not the default.** It needs the client on the
+same network as the box, which only the home machine ever is, and its address
+is whatever DHCP last handed out. Use it when the tunnel is down — which is
+exactly when the box most needs to be reached — and while building the box,
+before the tunnel and its Access application exist.
+
+**The tunnel needs the box online.** The box reaches the internet through a
+phone hotspot that travels with the owner, so while the owner is away from it
+the tunnel is down and `ssh homelab` times out. That is the first thing a
+timeout means, before it means anything is broken.
 
 ## The apex page
 

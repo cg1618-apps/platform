@@ -240,6 +240,13 @@ already has a tunnel with an authentication gate in front of it.
 Access decides who may open a connection at all; sshd still wants the key.
 Neither is trusted to be the only one.
 
+**The tunnel is the default route, and the LAN is the fallback.** `homelab` in
+`~/.ssh/config` names the tunnel and `homelab-lan` the direct connection. One
+route that works from both development machines means one command in every
+doc, rather than a LAN alias that answers at home and silently times out at the
+company. The LAN route stays because the tunnel is a dependency of reaching the
+box: when `cloudflared` is the thing that is broken, it is the only way in.
+
 **It is emitted by `bin/generate_ingress.py` like the apex, not listed in
 `apps.yml` like `logs`.** The decision above put `logs` in the registry because
 a hostname outside it went unprobed. SSH does not fit the registry. It has no

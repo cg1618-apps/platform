@@ -45,15 +45,21 @@ apps:
     status: live
     description: Ingredients, recipes, what is cookable, and the cooking schedule
     # food is public: reads are unauthenticated and its writes sit behind
-    # Access on one prefix. The app owns that definition - app/routing.py holds
-    # WRITE_PREFIX and generates deploy/gated-paths from it - and this is the
-    # declaration bin/deploy refuses to disagree with, exactly as it refuses
-    # when `migrations` and the hook on disk disagree. bin/check-exposure
-    # probes each path here for the Access redirect, which the hostname root
-    # cannot answer for: a public app answers ungated at / by design, and would
-    # go on doing so with the write surface wide open.
+    # Access on /api/edit. /edit - the pages that make those writes - is gated
+    # as well, so the login comes before the page rather than after its first
+    # save, which as a background request cannot follow Access's redirect and
+    # fails as "Failed to fetch". Both prefixes must be destinations of ONE
+    # Access application, so one sign-in covers the page and its writes. The
+    # app owns the definition - app/routing.py holds GATED_PATHS and generates
+    # deploy/gated-paths from it - and this is the declaration bin/deploy
+    # refuses to disagree with, exactly as it refuses when `migrations` and the
+    # hook on disk disagree. bin/check-exposure probes each path here for the
+    # Access redirect, which the hostname root cannot answer for: a public app
+    # answers ungated at / by design, and would go on doing so with the write
+    # surface wide open.
     gated_paths:
       - /api/edit
+      - /edit
 
   - name: travel
     hostname: travel.cg1618.com

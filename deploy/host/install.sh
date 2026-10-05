@@ -52,7 +52,7 @@ else
     echo "  WATCHDOG NOT ACTIVE: iTCO_wdt did not load or gave no /dev/watchdog0."
     echo "  Check: journalctl -k | grep -i tco"
 fi
-echo "  systemd feeds it every: $(systemctl show -p RuntimeWatchdogUSec --value)"
+echo "  watchdog timeout:       $(systemctl show -p RuntimeWatchdogUSec --value) (systemd feeds it at half that)"
 echo "  kernel.panic:           $(sysctl -n kernel.panic)"
 echo "  cg1618-netwatch:        $(systemctl is-active cg1618-netwatch.service)"
 echo

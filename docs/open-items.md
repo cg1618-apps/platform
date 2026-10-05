@@ -176,3 +176,30 @@ and applied, and a revision id that has been applied cannot be renamed without
 stranding the row that records it; that is why the rule is reparent, never
 renumber. The baselines stay, and what is written down is that they are
 inherited rather than chosen.
+
+## The box cannot recover from a hang or a silent network loss
+
+`media/docs/deployment-selfhost.md`, "How it recovers", covers a power cut end
+to end and tested. Two failures fall outside it, and either one leaves every
+app down until somebody stands at the box:
+
+- **A hung host.** Nothing reboots a frozen kernel. The chipset's Intel TCO
+  watchdog (`iTCO_wdt`) can, with no hardware to buy: `RuntimeWatchdogSec=30s`
+  and `RebootWatchdogSec=10min` in `/etc/systemd/system.conf`, plus
+  `kernel.panic=10` so a panic reboots rather than halting. Whether the BIOS
+  lets the watchdog actually reset the board is unverified, so it is proved by
+  hanging the box on purpose with someone present, not assumed from the
+  config.
+- **The network gone while the host is fine.** The watchdog never fires — the
+  box is healthy and keeps petting it. The "network disappears and returns" row
+  of that table is still "Not yet tested on the cable". What closes it is a
+  timer that probes the gateway and the tunnel edge, restarts networking after
+  a few consecutive failures, and reboots if that does not help — and then the
+  row tested for real.
+
+Also unrecorded: whether the self-hosted GitHub runner is a service that starts
+at boot. It does not affect serving, but a runner that stays offline after a
+reboot queues every deploy silently.
+
+Closing this lands each mechanism in that table with its measured result, and
+deletes the "Standing reminder" section of the root `CLAUDE.md`.

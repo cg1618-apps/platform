@@ -176,3 +176,27 @@ and applied, and a revision id that has been applied cannot be renamed without
 stranding the row that records it; that is why the rule is reparent, never
 renumber. The baselines stay, and what is written down is that they are
 inherited rather than chosen.
+
+## The box's recovery is installed in the repository, not proven on the box
+
+`deploy/host/` holds the hardware watchdog, reboot-on-panic and the Ethernet
+link watcher; `docs/shared-stack.md`, "The box recovers itself", says what each
+covers and why — including the 2026-10-05 outage, where `eno1` lost its link
+and only cutting mains power brought it back. What is still open:
+
+- **Install it.** `sudo ~/cg1618/deploy/host/install.sh` on the box, once the
+  change has reached `main`. Until then none of it is running.
+- **Prove the watchdog fires**, by the crash in that section, with someone
+  beside the box. A BIOS that blocks the reset is invisible until then.
+- **A smart plug (智慧插座) on the box's power**, tested from its app — and
+  checked that it comes back ON after a mains cut. Only then turn on
+  `NETWATCH_POWEROFF_AFTER`; before, it does harm.
+- **Turning AMT off in the BIOS** is untested. AMT is what keeps the NIC on
+  standby power and can block resets Linux asks for; with it off, a reboot or
+  the watcher's resets may be enough. Needs someone at the box, and a restart
+  to try it.
+- **The router's log for 18:35 on 2026-10-05**, if it keeps one, is the only
+  record of what dropped the link.
+
+Closing this — installed, the watchdog proven, the plug in place — deletes the
+"Standing reminder" section of the root `CLAUDE.md` in the same change.

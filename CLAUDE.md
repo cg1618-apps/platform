@@ -10,6 +10,15 @@ Put a rule there when it names a framework, a command, a table or a file that
 only that app has; put it here when it would be just as true of an app written
 in something else.
 
+## Standing reminder
+
+**At the start of every session, remind me that the box's watchdog is not set
+up yet** — one line, before anything else, then get on with the task. The work
+itself is in `docs/open-items.md`, "The box cannot recover from a hang or a
+silent network loss". It is box work, so it is done from a manager session; an
+app session only passes the reminder on. **Delete this section in the same
+change that closes that item.**
+
 ## Terminology: "project" and "app"
 
 These two words are not interchangeable here, and the owner uses them

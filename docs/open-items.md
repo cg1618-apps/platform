@@ -190,11 +190,9 @@ and only cutting mains power brought it back. What is still open:
   beside the box. A BIOS that blocks the reset is invisible until then.
 - **A smart plug (智慧插座) on the box's power**, tested from its app — and
   checked that it comes back ON after a mains cut. Only then turn on
-  `NETWATCH_POWEROFF_AFTER`; before, it does harm.
-- **Turning AMT off in the BIOS** is untested. AMT is what keeps the NIC on
-  standby power and can block resets Linux asks for; with it off, a reboot or
-  the watcher's resets may be enough. Needs someone at the box, and a restart
-  to try it.
+  `NETWATCH_POWEROFF_AFTER`; before, it does harm. The plug is the chosen
+  recovery for a dead link; `docs/notes/decisions.md`, "A dead Ethernet link is
+  recovered by a smart plug, not by the box", has what was rejected.
 - **The router's log for 18:35 on 2026-10-05**, if it keeps one, is the only
   record of what dropped the link.
 

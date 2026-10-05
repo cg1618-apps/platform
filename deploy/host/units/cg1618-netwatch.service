@@ -1,0 +1,21 @@
+[Unit]
+Description=cg1618: watch the box's Ethernet link and try to recover it
+# Not After=network-online.target: the case this exists for is the network
+# never coming online, and waiting on it would leave the watcher waiting too.
+After=systemd-networkd.service
+
+[Service]
+Type=simple
+# Root, because every recovery step is a root action: ip link, writing to the
+# driver's bind files in /sys, systemctl poweroff. install.sh copies the script
+# to /usr/local/sbin so root never executes a file a user account can edit.
+ExecStart=/usr/local/sbin/cg1618-netwatch
+Restart=always
+RestartSec=10
+# Poweroff stays off until a smart plug feeds the box. To turn it on, with
+# `sudo systemctl edit cg1618-netwatch`:
+#   [Service]
+#   Environment=NETWATCH_POWEROFF_AFTER=1800
+
+[Install]
+WantedBy=multi-user.target

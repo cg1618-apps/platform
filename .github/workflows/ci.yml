@@ -66,7 +66,7 @@ jobs:
               '#!'*/sh|'#!'*/sh\ *|'#!'*/bash|'#!'*/bash\ *|'#!'*env\ sh|'#!'*env\ bash)
                 scripts+=("$f") ;;
             esac
-          done < <(find bin -type f -not -path '*/__pycache__/*' -print0)
+          done < <(find bin deploy -type f -not -path '*/__pycache__/*' -print0)
           if [ ${#scripts[@]} -eq 0 ]; then
             echo "No shell scripts yet."
             exit 0

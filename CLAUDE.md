@@ -12,10 +12,11 @@ in something else.
 
 ## Standing reminder
 
-**At the start of every session, remind me that the box's watchdog is not set
-up yet** — one line, before anything else, then get on with the task. The work
-itself is in `docs/open-items.md`, "The box cannot recover from a hang or a
-silent network loss". It is box work, so it is done from a manager session; an
+**At the start of every session, remind me that the box's recovery work —
+the watchdog, the link watcher and the smart plug — is not finished** — one
+line, before anything else, then get on with the task. The work itself is in
+`docs/open-items.md`, "The box's recovery is installed in the repository, not
+proven on the box". It is box work, so it is done from a manager session; an
 app session only passes the reminder on. **Delete this section in the same
 change that closes that item.**
 

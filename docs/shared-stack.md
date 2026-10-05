@@ -380,3 +380,85 @@ mountpoint exist is not an alternative: that file is a credential and is never
 committed.
 
 `tests/test_deploy.py` asserts this too.
+
+## The box recovers itself
+
+`media/docs/deployment-selfhost.md`, "How it recovers", covers what brings the
+box back after a power cut. `deploy/host/` covers what that does not: a frozen
+kernel, and an Ethernet link that goes down and stays down while the host is
+fine. Installed, and re-installed after any change under `deploy/host/`, with
+
+```bash
+sudo ~/cg1618/deploy/host/install.sh
+```
+
+which restarts no container and does not reboot. A deploy brings `~/cg1618` to
+`origin/main` but touches nothing under `/etc` or `/usr/local`, so a change
+here reaches the box only by re-running it.
+
+| If this happens | What brings it back |
+| --- | --- |
+| The kernel freezes | The chipset's TCO watchdog (`iTCO_wdt`), fed by systemd every few seconds (`RuntimeWatchdogSec=30s`). If systemd stops for 30 s the hardware resets the board. |
+| The kernel panics | `kernel.panic = 10`: reboot ten seconds later instead of sitting halted. |
+| `eno1` loses its link for a few seconds | Nothing needs to. A three-second drop on 2026-10-03 came back on its own. |
+| `eno1` stays down for minutes | `cg1618-netwatch`: at 3 min it saves diagnostics and bounces the interface, at 6 min it rebinds the driver, at 10 min it removes the device and rescans the PCI bus. |
+| None of that works | Cutting mains power. Nothing on the box can do this — see below. |
+
+### The link that stayed down
+
+On 2026-10-05 at 18:35:22 `eno1` lost carrier with nothing logged before it —
+no driver error, no warning. The host stayed healthy and kept logging, but the
+link never came back. A power-button restart at 19:03 booted a kernel that
+brought `eno1` up and never saw carrier; only pulling the power cable did, and
+the next boot had link four seconds in.
+
+The reason a restart is not enough is standby power. The I219-LM is the port
+Intel AMT uses, and it stays powered whenever the box is plugged in — which the
+BIOS keeps deliberately, since `S5 Maximum Power Savings` would break power-on
+after a power cut. Whatever state the NIC was in survived both the shutdown and
+the boot. The trigger itself is unknown: the box's log cannot say what happened
+on the wire, and the router's log for that minute would be the next place to
+look.
+
+So **a scheduled reboot would not help, and the watcher's resets probably will
+not either** — a boot re-initialises the device more thoroughly than all three.
+They are cheap and run against a link that is already dead. What the watcher
+reliably adds is the diagnostics, which nobody had the first time:
+
+```bash
+journalctl -u cg1618-netwatch          # when it went down, which step ran, when it came back
+ls /var/log/cg1618-netwatch/           # the NIC's state while it was down
+```
+
+### Power-off, once a smart plug exists
+
+What did work was removing power. A remotely switchable plug (智慧插座) feeding
+the box can do that from anywhere, and the BIOS's power-on after power loss
+then boots it. Cutting power to a running box is an unclean shutdown of
+PostgreSQL, so the watcher can power the box off cleanly first:
+
+```bash
+sudo systemctl edit cg1618-netwatch
+# [Service]
+# Environment=NETWATCH_POWEROFF_AFTER=1800
+```
+
+**Leave it off until the plug is installed and tested.** A box that powers
+itself off stays off until mains power is cut and restored. Without a plug,
+that turns a router outage — which a running box recovers from on its own —
+into one that needs a person.
+
+### The watchdog is configured, not proven
+
+The BIOS can stop the TCO watchdog from resetting the board, and nothing short
+of a hang shows whether it has. Prove it **with someone beside the box**, since
+a watchdog that does not fire leaves it down until the power button is pressed:
+
+```bash
+sudo sysctl kernel.panic=0             # only the watchdog may bring it back
+echo 1 | sudo tee /proc/sys/kernel/sysrq
+echo c | sudo tee /proc/sysrq-trigger  # crash the kernel; the shell never returns
+```
+
+Expected: the box reboots within about a minute and every hostname answers
+again; `kernel.panic` is back to 10 from `/etc/sysctl.d` after the boot.

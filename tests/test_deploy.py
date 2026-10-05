@@ -88,13 +88,15 @@ SHEBANGS = ("#!/usr/bin/env bash", "#!/usr/bin/env sh", "#!/bin/bash", "#!/bin/s
 
 
 def shell_scripts() -> list[Path]:
-    """Every shell script in bin/, found by first line the way CI finds them.
+    """Every shell script in bin/ and deploy/, found by first line the way CI
+    finds them.
 
     Not the three new ones: covering only those is exactly how bin/provision
     stayed 100644 through the change that added this file.
     """
     found = []
-    for path in sorted((ROOT / "bin").rglob("*")):
+    paths = sorted((ROOT / "bin").rglob("*")) + sorted((ROOT / "deploy").rglob("*"))
+    for path in paths:
         if not path.is_file() or "__pycache__" in path.parts:
             continue
         first = path.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
@@ -107,7 +109,7 @@ def test_the_shell_scripts_are_found_at_all():
     # The guard on the guard: a detection that finds nothing passes every
     # assertion below without checking a thing.
     names = {p.name for p in shell_scripts()}
-    assert {"deploy", "health", "rollback", "provision"} <= names, names
+    assert {"deploy", "health", "rollback", "provision", "netwatch.sh", "install.sh"} <= names, names
 
 
 def test_they_are_committed_executable():

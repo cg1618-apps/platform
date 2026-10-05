@@ -394,3 +394,40 @@ that the reference is usually wrong: an app that stops reading `media` because
 of this entry has taken exactly the wrong lesson from it, and will reinvent
 conventions that were right all along. Ask, and believe the answer when it
 holds up.
+
+## A dead Ethernet link is recovered by a smart plug, not by the box
+
+On 2026-10-05 `eno1` lost carrier and only removing mains power brought it
+back (`docs/shared-stack.md`, "The link that stayed down"). The recovery chosen
+is a remotely switchable smart plug (智慧插座) on the box's power, cycled from
+its app — optionally after `cg1618-netwatch` has powered the box off cleanly.
+It is the one option certain to work, because it is exactly what worked.
+
+What was considered and not taken:
+
+- **A scheduled nightly reboot.** A power-button restart was tried during the
+  outage and did not restore the link. A reboot never removes the PHY's power —
+  it sits on standby power in every running state — so a schedule would cost a
+  nightly outage and fix nothing.
+- **Turning AMT off in the BIOS.** AMT is one feature of the management
+  engine, which keeps running and keeps its claim on the PHY whether or not AMT
+  is enabled; nothing found says disabling AMT releases it. The e1000e source
+  shows the only full PHY power-cycle the driver has is at probe, and the
+  engine can block it.
+- **AMT off, Wake-on-LAN off, and `rtcwake -m off`.** With nothing holding the
+  PHY on, a power-off with a clock wake-up might power-cycle it the way a plug
+  does, with no hardware. Plausible from Intel's datasheets, but it depends on
+  HP's firmware cutting PHY power and on an RTC wake from soft-off, neither
+  tested — and the variant using `S5 Maximum Power Savings` is ruled out,
+  since that setting breaks power-on after power loss.
+- **A USB Ethernet adapter as a second route.** The only option independent of
+  the management engine, and automatic. Not taken: a second cable, a second
+  router port and dual-interface routing for a failure seen once.
+- **The `disable-k1` private flag.** Present on this box's driver and cheap to
+  set, but documented for packet loss, not for a lost link.
+- **AMT as the out-of-band path.** It talks over the same NIC, so it is
+  unreachable in exactly the failure it would be wanted for.
+
+If the link wedges again with the plug in place, the netwatch diagnostics from
+that failure are what reopen this — the USB adapter first, being the only
+alternative that removes the dependency rather than resetting it.

@@ -195,6 +195,3 @@ and only cutting mains power brought it back. What is still open:
   recovered by a smart plug, not by the box", has what was rejected.
 - **The router's log for 18:35 on 2026-10-05**, if it keeps one, is the only
   record of what dropped the link.
-
-Closing this — installed, the watchdog proven, the plug in place — deletes the
-"Standing reminder" section of the root `CLAUDE.md` in the same change.

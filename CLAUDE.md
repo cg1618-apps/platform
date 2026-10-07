@@ -261,11 +261,11 @@ right-looking history); start the app's database; install dependencies if they
 moved; run migrations before restoring any data; then build whatever the app
 serves from a build directory.
 
-**The company machine has not been migrated to this layout.** It still holds a
-clone of the archived `cgentle1618/anime_site`, and migrating it is a fresh
-clone alongside rather than a replacement. The media tracker's
-`docs/switching-environments.md` holds the procedure and the per-machine
-detail; read it from the machine rather than from memory.
+**Both machines are on this layout.** Company's pre-migration clone of the
+archived `cgentle1618/anime_site` has been deleted; home still keeps its own,
+for nothing but the gitignored `static/covers/` it holds. The media tracker's
+`docs/switching-environments.md` holds the per-machine detail; read it from
+the machine rather than from memory.
 
 ## Git Worktrees
 

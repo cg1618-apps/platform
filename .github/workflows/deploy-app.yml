@@ -96,7 +96,7 @@ jobs:
       # the range `before...after`, and a shallow clone does not contain
       # `before`.
       - name: Check out the app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           path: app
@@ -116,7 +116,7 @@ jobs:
       # it fails for every app at once and the message names a checkout rather
       # than a permission.
       - name: Check out the registry
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: cg1618-apps/platform
           ref: main

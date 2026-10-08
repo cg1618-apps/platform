@@ -132,3 +132,15 @@ def test_the_watchdog_driver_loads_early_at_every_boot():
     assert "Before=sysinit.target" in unit
     assert "WantedBy=sysinit.target" in unit
     assert "systemctl enable cg1618-watchdog-module.service" in code(INSTALL)
+
+
+PANIC_CONF = HOST / "etc" / "90-cg1618-panic.conf"
+
+
+def test_lockups_panic_so_the_box_reboots():
+    # The TCO watchdog cannot reset this board, so a lockup has to become a
+    # panic for kdump or kernel.panic to recover it.
+    conf = code(PANIC_CONF)
+    assert "kernel.panic = 10" in conf
+    assert "kernel.softlockup_panic = 1" in conf
+    assert "kernel.hardlockup_panic = 1" in conf

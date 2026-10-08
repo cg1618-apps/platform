@@ -437,23 +437,31 @@ journalctl -u cg1618-netwatch          # when it went down, which step ran, when
 ls /var/log/cg1618-netwatch/           # the NIC's state while it was down
 ```
 
-### Power-off, once a smart plug exists
+### The smart plug, and why the box never powers itself off
 
-What did work was removing power. A remotely switchable plug (智慧插座) feeding
-the box can do that from anywhere, and the BIOS's power-on after power loss
-then boots it. Cutting power to a running box is an unclean shutdown of
-PostgreSQL, so the watcher can power the box off cleanly first:
+What did work was removing power. The box is fed through a Tapo P105 smart
+plug (智慧插座), switched from the Tapo app over its cloud, so it works from
+anywhere with no route to the box. **A dead link is recovered by turning the
+plug off for a minute and back on**, with the box still running.
 
-```bash
-sudo systemctl edit cg1618-netwatch
-# [Service]
-# Environment=NETWATCH_POWEROFF_AFTER=1800
-```
+That only works because the box is running when the power goes. The BIOS
+restores the **previous** state when power returns: a box cut while running
+boots by itself, a box that was shut down stays off however often the plug is
+cycled. Both were tested from the app: the running cut came back in about a
+minute, and the clean `poweroff` followed by a plug cycle did not. Changing the
+BIOS to power on unconditionally would allow the second; it is left as it is.
 
-**Leave it off until the plug is installed and tested.** A box that powers
-itself off stays off until mains power is cut and restored. Without a plug,
-that turns a router outage — which a running box recovers from on its own —
-into one that needs a person.
+So **`NETWATCH_POWEROFF_AFTER` stays at its default, 0.** It exists to shut the
+box down cleanly before the plug is cycled, and with this BIOS that turns a dead
+link into one no plug can recover. The cost of leaving it off is that a plug
+cycle is an unclean stop for PostgreSQL. It recovers from that by replaying its
+log on the next start ("database system was not properly shut down; automatic
+recovery in progress") and loses nothing committed.
+
+**A plug cycle can move the box's address.** DHCP on the network above the H3C
+has no reservation for it, so after a cold boot `homelab-lan`'s address may be
+stale while every hostname still answers through the tunnel. Find it as the
+machine's `CLAUDE.local.md` describes, by the host key.
 
 ### The watchdog is configured, not proven
 
@@ -469,3 +477,19 @@ echo c | sudo tee /proc/sysrq-trigger  # crash the kernel; the shell never retur
 
 Expected: the box reboots within about a minute and every hostname answers
 again; `kernel.panic` is back to 10 from `/etc/sysctl.d` after the boot.
+
+**Check the driver after a boot, not after the install.** Ubuntu's kernel
+package blacklists `iTCO_wdt`, and `systemd-modules-load` honours that
+blacklist: a `modules-load.d` entry is logged as "deny-listed (by kmod)" and
+loads nothing. `install.sh` loads the driver by hand, so the install itself
+always looks fine and only the next boot tells. What loads it at boot is
+`cg1618-watchdog-module.service`, which runs `modprobe iTCO_wdt` by name — that
+ignores the blacklist — before `sysinit.target`, while PID 1 is still looking
+for a device. After a boot:
+
+```bash
+ls /dev/watchdog0
+journalctl -b | grep -i "hardware watchdog"   # "Using hardware watchdog /dev/watchdog0"
+```
+
+A boot that logs "Failed to open any watchdog device" is running without one.

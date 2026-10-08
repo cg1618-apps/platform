@@ -407,7 +407,7 @@ holds up.
 On 2026-10-05 `eno1` lost carrier and only removing mains power brought it
 back (`docs/shared-stack.md`, "The link that stayed down"). The recovery chosen
 is a remotely switchable smart plug (智慧插座) on the box's power, cycled from
-its app — optionally after `cg1618-netwatch` has powered the box off cleanly.
+its app, with the box still running.
 It is the one option certain to work, because it is exactly what worked.
 
 What was considered and not taken:
@@ -434,6 +434,14 @@ What was considered and not taken:
   set, but documented for packet loss, not for a lost link.
 - **AMT as the out-of-band path.** It talks over the same NIC, so it is
   unreachable in exactly the failure it would be wanted for.
+
+- **The BIOS set to power on after every power loss**, so a box that
+  `cg1618-netwatch` had shut down cleanly could be brought back by the plug,
+  and PostgreSQL would never be stopped uncleanly. Tested: the BIOS restores
+  the previous state, so the clean power-off leaves the box off. Not taken,
+  because a plug cut on a running box already recovers it, and PostgreSQL's
+  crash recovery makes the unclean stop cheap; the BIOS stays untouched until a
+  failure the plug cannot fix. `NETWATCH_POWEROFF_AFTER` stays 0 as a result.
 
 If the link wedges again with the plug in place, the netwatch diagnostics from
 that failure are what reopen this — the USB adapter first, being the only

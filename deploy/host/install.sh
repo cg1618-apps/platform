@@ -16,7 +16,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Hardware watchdog"
-install -D -m 644 "${HERE}/etc/cg1618-watchdog-module.conf" /etc/modules-load.d/cg1618-watchdog.conf
+# Loads the driver at boot. A modules-load.d entry cannot: it obeys Ubuntu's
+# blacklist. Removed here because earlier versions of this script installed it.
+install -m 644 "${HERE}/units/cg1618-watchdog-module.service" /etc/systemd/system/
+rm -f /etc/modules-load.d/cg1618-watchdog.conf
 install -D -m 644 "${HERE}/etc/cg1618-watchdog.conf" /etc/systemd/system.conf.d/cg1618-watchdog.conf
 # A refusal here is the BIOS keeping the watchdog from resetting the board
 # ("unable to reset NO_REBOOT flag"). Reported rather than fatal: the rest of
@@ -29,8 +32,9 @@ if [ ! -e /dev/watchdog0 ]; then
     watchdog_ok=0
 fi
 # Re-executing PID 1 is what makes it read system.conf.d. Running services
-# are untouched.
+# are untouched. It also reloads unit files, so the enable below sees the unit.
 systemctl daemon-reexec
+systemctl enable cg1618-watchdog-module.service
 
 echo "==> Reboot on kernel panic"
 install -D -m 644 "${HERE}/etc/90-cg1618-panic.conf" /etc/sysctl.d/90-cg1618-panic.conf

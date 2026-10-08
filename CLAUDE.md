@@ -602,7 +602,10 @@ the two things they share: the platform repository and the box.
   apex page, the reusable workflow, this file. Shared state, and the one place
   four sessions would genuinely collide.
 - **The box.** Every `ssh`, every `bin/provision`, every deploy run by hand,
-  every look at a container or a production database.
+  every look at a container or a production database. **Only a machine set up
+  as a client can do any of it** — the company machine deliberately is not,
+  and `CLAUDE.local.md` says which machine this is. A manager on a machine
+  with no route says what the box needs and stops; it does not set a route up.
 - **Release sequencing.** Not because releases collide - see the runner note
   below - but because when something breaks you want one session that knows
   what landed in what order.

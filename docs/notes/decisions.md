@@ -229,8 +229,8 @@ it from the apex page would have hidden it from nobody.
 
 ## SSH to the box goes through the tunnel, and is not in the registry
 
-The box is reachable on the home LAN and nowhere else, so the company machine
-could not reach it at all. `ssh.cg1618.com` routes through the tunnel that
+The box is reachable on the home LAN and nowhere else, and the machine doing
+the work is normally not on that network. `ssh.cg1618.com` routes through the tunnel that
 already exists: no port is opened on either router, and nothing new runs on
 the box. A second overlay such as Tailscale would do the same job with another
 daemon, another account and another thing to keep patched, when the platform
@@ -242,10 +242,17 @@ Neither is trusted to be the only one.
 
 **The tunnel is the default route, and the LAN is the fallback.** `homelab` in
 `~/.ssh/config` names the tunnel and `homelab-lan` the direct connection. One
-route that works from both development machines means one command in every
-doc, rather than a LAN alias that answers at home and silently times out at the
-company. The LAN route stays because the tunnel is a dependency of reaching the
-box: when `cloudflared` is the thing that is broken, it is the only way in.
+route that works wherever the client happens to be means one command in every
+doc, rather than a LAN alias that answers only when the client and the box
+share a network, and silently times out otherwise. The LAN route stays because
+the tunnel is a dependency of reaching the box: when `cloudflared` is the thing
+that is broken, it is the only way in.
+
+**The company machine is not a client, on purpose.** It could reach the box the
+same way, but setting it up would put the tunnel client, an SSH key for the box
+and its hostname on a company-managed machine, and the traffic on the company
+network. Work that needs the box is rare enough to wait for the home machine,
+so the company machine has no route at all and the docs treat that as settled.
 
 **It is emitted by `bin/generate_ingress.py` like the apex, not listed in
 `apps.yml` like `logs`.** The decision above put `logs` in the registry because

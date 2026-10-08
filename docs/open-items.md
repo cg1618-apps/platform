@@ -177,17 +177,17 @@ stranding the row that records it; that is why the rule is reparent, never
 renumber. The baselines stay, and what is written down is that they are
 inherited rather than chosen.
 
-## The box's recovery is installed in the repository, not proven on the box
+## The box's hardware watchdog does not reset it
 
-`deploy/host/` holds the hardware watchdog, reboot-on-panic and the Ethernet
-link watcher; `docs/shared-stack.md`, "The box recovers itself", says what each
-covers and why — including the 2026-10-05 outage, where `eno1` lost its link
-and only cutting mains power brought it back. What is still open:
+`deploy/host/` is installed and its parts are tested on the box —
+`docs/shared-stack.md`, "The box recovers itself", says what each covers. The
+exception is the TCO watchdog: loaded, fed, and blocked from resetting the
+board by the firmware. Lockups are turned into panics instead, which kdump
+recovers, so what is left uncovered is a hang the lockup detector cannot see.
+What is still open:
 
-- **Install it.** `sudo ~/cg1618/deploy/host/install.sh` on the box, once the
-  change has reached `main`. Until then none of it is running.
-- **Prove the watchdog fires**, by the crash in that section, with someone
-  beside the box. A BIOS that blocks the reset is invisible until then.
+- **Which BIOS setting blocks the watchdog reset**, if a hang the lockup
+  settings miss ever happens. Deferred until then; the plug recovers it.
 - **A DHCP reservation for the box** on the router above the H3C. A plug
   cycle on 2026-10-08 moved it from one address to another; the tunnel does
   not care, but the LAN route has to be found again each time.

@@ -141,34 +141,37 @@ Cloudflare dashboard, in this order:
 
 **On a client**, install `cloudflared` (`winget install --id
 Cloudflare.cloudflared` on Windows) and give `~/.ssh/config` two hosts. The
-plain name is the tunnel, so every `ssh homelab` in these docs goes through
-Cloudflare; the LAN route has to be asked for by name:
+plain name is the LAN, so every `ssh homelab` in these docs goes straight to
+the box; the tunnel has to be asked for by name:
 
 ```
 Host homelab
+    HostName <the box's LAN address>
+    User cgentle1618
+
+Host homelab-tunnel
     HostName ssh.cg1618.com
     User cgentle1618
     ProxyCommand cloudflared access ssh --hostname %h
-
-Host homelab-lan
-    HostName <the box's LAN address>
-    User cgentle1618
 ```
 
 On Windows, if `ssh` cannot find it, give `ProxyCommand` the full path to
 `cloudflared.exe`. The first connection opens a browser to sign in to Access,
 and the token is cached after that.
 
-**`homelab-lan` is the fallback, not the default.** It needs the client on the
-same network as the box, which only the home machine ever is, and its address
-is whatever DHCP last handed out. Use it when the tunnel is down — which is
-exactly when the box most needs to be reached — and while building the box,
-before the tunnel and its Access application exist.
+**`homelab-tunnel` is for when the LAN route cannot work**: the client is away
+from home, or the box's address has moved and has not been found again yet.
+`homelab` needs the client on the same network as the box, and its address is
+whatever DHCP last handed out, so a timeout on it after a power cut usually
+means a new address rather than a dead box. The tunnel route is the slower of
+the two and depends on `cloudflared`, which is why it is not the default.
 
-**The tunnel needs the box online.** The box reaches the internet through a
-phone hotspot that travels with the owner, so while the owner is away from it
-the tunnel is down and `ssh homelab` times out. That is the first thing a
-timeout means, before it means anything is broken.
+**The tunnel needs the box online.** The box is on wired Ethernet at home,
+behind the H3C router, so a tunnel timeout means the box, its link or the
+home connection is down. Check a public hostname first: if
+`https://media.cg1618.com/api/health` answers, the box and the tunnel are up
+and the fault is on the SSH side. If nothing answers, "The box recovers itself"
+below is the next place to look.
 
 ## The apex page
 
@@ -391,9 +394,9 @@ committed.
 ## The box recovers itself
 
 `media/docs/deployment-selfhost.md`, "How it recovers", covers what brings the
-box back after a power cut. `deploy/host/` covers what that does not: a frozen
-kernel, and an Ethernet link that goes down and stays down while the host is
-fine. Installed, and re-installed after any change under `deploy/host/`, with
+box back after a power cut. `deploy/host/` covers what that does not: a kernel
+that panics or locks up, and an Ethernet link that goes down and stays down
+while the host is fine. Installed, and re-installed after any change under `deploy/host/`, with
 
 ```bash
 sudo ~/cg1618/deploy/host/install.sh
@@ -405,11 +408,12 @@ here reaches the box only by re-running it.
 
 | If this happens | What brings it back |
 | --- | --- |
-| The kernel freezes | The chipset's TCO watchdog (`iTCO_wdt`), fed by systemd every few seconds (`RuntimeWatchdogSec=30s`). If systemd stops for 30 s the hardware resets the board. |
-| The kernel panics | `kernel.panic = 10`: reboot ten seconds later instead of sitting halted. |
+| The kernel panics | kdump, which Ubuntu installs, boots a capture kernel, saves a dump under `/var/crash` and reboots. `kernel.panic = 10` reboots instead if kdump is not loaded. |
+| A CPU locks up in the kernel | `kernel.softlockup_panic` and `kernel.hardlockup_panic` turn the kernel's lockup detector into a panic, and the row above takes over. |
+| The kernel hangs without the lockup detector seeing it | Nothing on the box. The hardware watchdog is configured but does not reset this board — see below. The plug. |
 | `eno1` loses its link for a few seconds | Nothing needs to. A three-second drop on 2026-10-03 came back on its own. |
 | `eno1` stays down for minutes | `cg1618-netwatch`: at 3 min it saves diagnostics and bounces the interface, at 6 min it rebinds the driver, at 10 min it removes the device and rescans the PCI bus. |
-| None of that works | Cutting mains power. Nothing on the box can do this — see below. |
+| None of that works | Cutting mains power, with the smart plug — see below. |
 
 ### The link that stayed down
 
@@ -459,24 +463,35 @@ log on the next start ("database system was not properly shut down; automatic
 recovery in progress") and loses nothing committed.
 
 **A plug cycle can move the box's address.** DHCP on the network above the H3C
-has no reservation for it, so after a cold boot `homelab-lan`'s address may be
+has no reservation for it, so after a cold boot `homelab`'s address may be
 stale while every hostname still answers through the tunnel. Find it as the
 machine's `CLAUDE.local.md` describes, by the host key.
 
-### The watchdog is configured, not proven
+### The hardware watchdog does not fire
 
-The BIOS can stop the TCO watchdog from resetting the board, and nothing short
-of a hang shows whether it has. Prove it **with someone beside the box**, since
-a watchdog that does not fire leaves it down until the power button is pressed:
+The chipset's TCO watchdog (`iTCO_wdt`) is loaded and fed by systemd
+(`RuntimeWatchdogSec=30s`), and it does not reset the board. Tested with
+someone beside the box: kdump unloaded, `kernel.panic` at 0, kernel crashed —
+nothing but the watchdog could restart it, and it stayed frozen for nine
+minutes until the plug was cycled. The driver loads with no complaint, so what
+blocks the reset is the firmware. Finding out what in the BIOS does it is
+deferred until a hang the lockup settings above do not catch makes it worth
+the trip; the watchdog stays configured meanwhile, since it costs nothing and
+would start working with no other change.
+
+The test, for whoever revisits it — beside the box, with the plug at hand:
 
 ```bash
+sudo kdump-config unload               # or kdump catches the crash and reboots
 sudo sysctl kernel.panic=0             # only the watchdog may bring it back
 echo 1 | sudo tee /proc/sys/kernel/sysrq
 echo c | sudo tee /proc/sysrq-trigger  # crash the kernel; the shell never returns
 ```
 
-Expected: the box reboots within about a minute and every hostname answers
-again; `kernel.panic` is back to 10 from `/etc/sysctl.d` after the boot.
+A working watchdog reboots the box within a minute or two, with no new entry
+under `/var/crash`. Both settings return on the next boot. Without the first
+line the same crash is a test of kdump, which does work: it saves a dump of
+about 100 MB and reboots in under a minute.
 
 **Check the driver after a boot, not after the install.** Ubuntu's kernel
 package blacklists `iTCO_wdt`, and `systemd-modules-load` honours that

@@ -1,0 +1,18 @@
+# /etc/systemd/system/cg1618-watchdog-module.service, installed by
+# deploy/host/install.sh. Ubuntu's kernel package blacklists iTCO_wdt, and
+# systemd-modules-load honours the blacklist - a modules-load.d entry is
+# logged as "deny-listed (by kmod)" and skipped. modprobe naming the module
+# ignores it. Early, so /dev/watchdog0 exists before PID 1 stops looking for
+# one when the initial transaction completes.
+[Unit]
+Description=Load the chipset watchdog driver for systemd's hardware watchdog
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/modprobe iTCO_wdt
+
+[Install]
+WantedBy=sysinit.target

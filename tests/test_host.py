@@ -111,3 +111,24 @@ def test_root_runs_a_copy_not_the_checkout():
 def test_the_watcher_does_not_wait_for_the_network():
     # It exists for the case where the network never comes online.
     assert "network-online.target" not in code(UNIT)
+
+
+WATCHDOG_UNIT = HOST / "units" / "cg1618-watchdog-module.service"
+
+
+def test_the_watchdog_driver_is_not_left_to_modules_load():
+    # systemd-modules-load honours Ubuntu's blacklist of iTCO_wdt, so an entry
+    # there loads nothing; the box booted on 2026-10-08 with no /dev/watchdog0.
+    # The one mention left is the line removing what earlier versions installed.
+    mentions = [line for line in code(INSTALL).splitlines() if "modules-load.d" in line]
+    assert mentions == ["rm -f /etc/modules-load.d/cg1618-watchdog.conf"]
+
+
+def test_the_watchdog_driver_loads_early_at_every_boot():
+    unit = code(WATCHDOG_UNIT)
+    assert "ExecStart=/usr/sbin/modprobe iTCO_wdt" in unit
+    # Before sysinit.target, so PID 1 finds /dev/watchdog0 while it still looks.
+    assert "DefaultDependencies=no" in unit
+    assert "Before=sysinit.target" in unit
+    assert "WantedBy=sysinit.target" in unit
+    assert "systemctl enable cg1618-watchdog-module.service" in code(INSTALL)

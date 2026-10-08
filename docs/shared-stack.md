@@ -469,3 +469,19 @@ echo c | sudo tee /proc/sysrq-trigger  # crash the kernel; the shell never retur
 
 Expected: the box reboots within about a minute and every hostname answers
 again; `kernel.panic` is back to 10 from `/etc/sysctl.d` after the boot.
+
+**Check the driver after a boot, not after the install.** Ubuntu's kernel
+package blacklists `iTCO_wdt`, and `systemd-modules-load` honours that
+blacklist: a `modules-load.d` entry is logged as "deny-listed (by kmod)" and
+loads nothing. `install.sh` loads the driver by hand, so the install itself
+always looks fine and only the next boot tells. What loads it at boot is
+`cg1618-watchdog-module.service`, which runs `modprobe iTCO_wdt` by name — that
+ignores the blacklist — before `sysinit.target`, while PID 1 is still looking
+for a device. After a boot:
+
+```bash
+ls /dev/watchdog0
+journalctl -b | grep -i "hardware watchdog"   # "Using hardware watchdog /dev/watchdog0"
+```
+
+A boot that logs "Failed to open any watchdog device" is running without one.

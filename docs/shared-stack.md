@@ -1,6 +1,6 @@
 # The shared stack
 
-Last verified: 2026-09-25
+Last verified: 2026-10-08
 
 `docker-compose.prod.yml` in this repository runs the half of the box that
 belongs to no single application: one PostgreSQL and one Cloudflare Tunnel. It
@@ -106,10 +106,17 @@ deploy cadences.
 
 ## SSH through the tunnel
 
-**This is the default way into the box, from every machine.** `ssh.cg1618.com`
-routes to the box's own sshd, so the box can be reached from anywhere and not
-only from the home LAN. The direct LAN connection is the fallback, kept for
-when the tunnel is down. The ingress rule is
+**This is the default way into the box.** `ssh.cg1618.com` routes to the box's
+own sshd, so the box can be reached from anywhere and not only from the home
+LAN — which matters because the machine doing the work is normally not on the
+same network as the box. The direct LAN connection is the fallback, kept for
+when the tunnel is down.
+
+**Only the home machine is a client.** The company machine deliberately has no
+`cloudflared`, no `~/.ssh/config` entry and no key for the box, so that nothing
+about the box goes over the company network; work that needs the box waits for
+the home machine. That absence is a decision, not an unfinished setup —
+nothing should "fix" it. Each machine's `CLAUDE.local.md` says which one it is. The ingress rule is
 `ssh://host.docker.internal:22`, and the `extra_hosts` entry on `cloudflared`
 is what makes that name resolve inside the container. The reasoning is in
 [notes/decisions.md](notes/decisions.md).

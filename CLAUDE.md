@@ -448,6 +448,15 @@ one-line when it was described is exactly the one that grows.
     never has to be read either way; and if the check cannot be run, say the
     deploy is unclassifiable, which takes the gated lane anyway. The platform
     repository has no gated lane, so its releases never need this.
+  - **On a gated release, my merge is not the end — remind me.** When I say
+    "merged" (or "done") on a release that took the gated lane, the deploy is
+    sitting in the app's `production` environment waiting for my approval,
+    and nothing reaches the box until I give it. So answer by reminding me of
+    that, with the link to the waiting run (`gh run list -R
+    cg1618-apps/<app> -w deploy.yml -L 1`), before anything else. On such a
+    release "done" is premature until the approval is given and the deploy has
+    gone green, and what follows the release waits for that too, not just for
+    the merge.
   - **Anything that follows a release waits for my merge too** — pulling the
     platform on the box, `docker compose up -d`, watching the deploy. Do it
     once I say the release is merged, not before.

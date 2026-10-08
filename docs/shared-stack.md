@@ -141,29 +141,30 @@ Cloudflare dashboard, in this order:
 
 **On a client**, install `cloudflared` (`winget install --id
 Cloudflare.cloudflared` on Windows) and give `~/.ssh/config` two hosts. The
-plain name is the tunnel, so every `ssh homelab` in these docs goes through
-Cloudflare; the LAN route has to be asked for by name:
+plain name is the LAN, so every `ssh homelab` in these docs goes straight to
+the box; the tunnel has to be asked for by name:
 
 ```
 Host homelab
+    HostName <the box's LAN address>
+    User cgentle1618
+
+Host homelab-tunnel
     HostName ssh.cg1618.com
     User cgentle1618
     ProxyCommand cloudflared access ssh --hostname %h
-
-Host homelab-lan
-    HostName <the box's LAN address>
-    User cgentle1618
 ```
 
 On Windows, if `ssh` cannot find it, give `ProxyCommand` the full path to
 `cloudflared.exe`. The first connection opens a browser to sign in to Access,
 and the token is cached after that.
 
-**`homelab-lan` is the fallback, not the default.** It needs the client on the
-same network as the box, which only the home machine ever is, and its address
-is whatever DHCP last handed out. Use it when the tunnel is down — which is
-exactly when the box most needs to be reached — and while building the box,
-before the tunnel and its Access application exist.
+**`homelab-tunnel` is for when the LAN route cannot work**: the client is away
+from home, or the box's address has moved and has not been found again yet.
+`homelab` needs the client on the same network as the box, and its address is
+whatever DHCP last handed out, so a timeout on it after a power cut usually
+means a new address rather than a dead box. The tunnel route is the slower of
+the two and depends on `cloudflared`, which is why it is not the default.
 
 **The tunnel needs the box online.** The box is on wired Ethernet at home,
 behind the H3C router, so a tunnel timeout means the box, its link or the
@@ -461,7 +462,7 @@ log on the next start ("database system was not properly shut down; automatic
 recovery in progress") and loses nothing committed.
 
 **A plug cycle can move the box's address.** DHCP on the network above the H3C
-has no reservation for it, so after a cold boot `homelab-lan`'s address may be
+has no reservation for it, so after a cold boot `homelab`'s address may be
 stale while every hostname still answers through the tunnel. Find it as the
 machine's `CLAUDE.local.md` describes, by the host key.
 

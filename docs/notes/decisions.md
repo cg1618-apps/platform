@@ -240,13 +240,16 @@ already has a tunnel with an authentication gate in front of it.
 Access decides who may open a connection at all; sshd still wants the key.
 Neither is trusted to be the only one.
 
-**The tunnel is the default route, and the LAN is the fallback.** `homelab` in
-`~/.ssh/config` names the tunnel and `homelab-lan` the direct connection. One
-route that works wherever the client happens to be means one command in every
-doc, rather than a LAN alias that answers only when the client and the box
-share a network, and silently times out otherwise. The LAN route stays because
-the tunnel is a dependency of reaching the box: when `cloudflared` is the thing
-that is broken, it is the only way in.
+**The LAN is the default route, and the tunnel is the second.** `homelab` in
+`~/.ssh/config` names the direct connection and `homelab-tunnel` the route
+through Cloudflare. The only client is the home machine, and it is almost
+always on the box's network: there the LAN is faster, and it still works when
+`cloudflared` is the thing that is broken — exactly when the box most needs to
+be reached. The tunnel was the default for a while, on the argument that one
+route working from anywhere means one command in every doc; with one client
+that is nearly always at home, that bought less than it cost. The tunnel stays
+for the times the client is away, and for finding the box after DHCP has moved
+it.
 
 **The company machine is not a client, on purpose.** It could reach the box the
 same way, but setting it up would put the tunnel client, an SSH key for the box

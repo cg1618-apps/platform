@@ -12,10 +12,9 @@ Type=simple
 ExecStart=/usr/local/sbin/cg1618-netwatch
 Restart=always
 RestartSec=10
-# Poweroff stays off until a smart plug feeds the box. To turn it on, with
-# `sudo systemctl edit cg1618-netwatch`:
-#   [Service]
-#   Environment=NETWATCH_POWEROFF_AFTER=1800
+# Poweroff stays off: this box's BIOS keeps a powered-off box off when the
+# smart plug cycles mains, so it would make a dead link unrecoverable. See
+# docs/shared-stack.md before setting NETWATCH_POWEROFF_AFTER.
 
 [Install]
 WantedBy=multi-user.target

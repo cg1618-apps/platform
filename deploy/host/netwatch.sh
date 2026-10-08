@@ -21,11 +21,11 @@
 # are the part that is guaranteed to be useful, because nothing was recorded
 # about the NIC the first time.
 #
-# Poweroff is OFF by default (NETWATCH_POWEROFF_AFTER=0). A box that powers
-# itself off stays off until something cuts and restores mains power, so it is
-# only safe once a remotely switchable smart plug feeds the box - and harmful
-# before, because a link lost to a router outage comes back on its own if the
-# box stays up. See docs/shared-stack.md, "The box recovers itself".
+# Poweroff is OFF (NETWATCH_POWEROFF_AFTER=0) and stays off on this box. Its
+# BIOS restores the previous power state, so a box that powered itself off
+# stays off even when the smart plug cycles mains power; the plug recovers a
+# dead link only by cutting a box that is still running. See
+# docs/shared-stack.md, "The box recovers itself".
 
 set -euo pipefail
 

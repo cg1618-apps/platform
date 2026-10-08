@@ -10,16 +10,6 @@ Put a rule there when it names a framework, a command, a table or a file that
 only that app has; put it here when it would be just as true of an app written
 in something else.
 
-## Standing reminder
-
-**At the start of every session, remind me that the box's recovery work —
-the watchdog, the link watcher and the smart plug — is not finished** — one
-line, before anything else, then get on with the task. The work itself is in
-`docs/open-items.md`, "The box's recovery is installed in the repository, not
-proven on the box". It is box work, so it is done from a manager session; an
-app session only passes the reminder on. **Delete this section in the same
-change that closes that item.**
-
 ## Terminology: "project" and "app"
 
 These two words are not interchangeable here, and the owner uses them
@@ -271,11 +261,11 @@ right-looking history); start the app's database; install dependencies if they
 moved; run migrations before restoring any data; then build whatever the app
 serves from a build directory.
 
-**The company machine has not been migrated to this layout.** It still holds a
-clone of the archived `cgentle1618/anime_site`, and migrating it is a fresh
-clone alongside rather than a replacement. The media tracker's
-`docs/switching-environments.md` holds the procedure and the per-machine
-detail; read it from the machine rather than from memory.
+**Both machines are on this layout.** Company's pre-migration clone of the
+archived `cgentle1618/anime_site` has been deleted; home still keeps its own,
+for nothing but the gitignored `static/covers/` it holds. The media tracker's
+`docs/switching-environments.md` holds the per-machine detail; read it from
+the machine rather than from memory.
 
 ## Git Worktrees
 
@@ -447,6 +437,26 @@ one-line when it was described is exactly the one that grows.
     open it. A plan you proposed that went on to merge does not become approved
     because I approved the step before it — that is exactly how two releases
     were merged and deployed on 2026-09-25 without me pressing the button.
+  - **Say whether the release will need my approval after the merge — twice.**
+    A release that adds or modifies a migration takes the deploy's gated lane
+    and waits, after I merge, for my approval in the app's `production`
+    environment; nothing else about the PR shows it. So check before drafting —
+    the app's own hook answers it, `deploy/migrations added origin/main
+    origin/dev` after a `git fetch`, and any output means gated — and say it
+    in plain words **when you show me the text**, and **again when you give me
+    the link** to the opened PR. Say so too when the answer is no, so silence
+    never has to be read either way; and if the check cannot be run, say the
+    deploy is unclassifiable, which takes the gated lane anyway. The platform
+    repository has no gated lane, so its releases never need this.
+  - **On a gated release, my merge is not the end — remind me.** When I say
+    "merged" (or "done") on a release that took the gated lane, the deploy is
+    sitting in the app's `production` environment waiting for my approval,
+    and nothing reaches the box until I give it. So answer by reminding me of
+    that, with the link to the waiting run (`gh run list -R
+    cg1618-apps/<app> -w deploy.yml -L 1`), before anything else. On such a
+    release "done" is premature until the approval is given and the deploy has
+    gone green, and what follows the release waits for that too, not just for
+    the merge.
   - **Anything that follows a release waits for my merge too** — pulling the
     platform on the box, `docker compose up -d`, watching the deploy. Do it
     once I say the release is merged, not before.
@@ -612,7 +622,10 @@ the two things they share: the platform repository and the box.
   apex page, the reusable workflow, this file. Shared state, and the one place
   four sessions would genuinely collide.
 - **The box.** Every `ssh`, every `bin/provision`, every deploy run by hand,
-  every look at a container or a production database.
+  every look at a container or a production database. **Only a machine set up
+  as a client can do any of it** — the company machine deliberately is not,
+  and `CLAUDE.local.md` says which machine this is. A manager on a machine
+  with no route says what the box needs and stops; it does not set a route up.
 - **Release sequencing.** Not because releases collide - see the runner note
   below - but because when something breaks you want one session that knows
   what landed in what order.

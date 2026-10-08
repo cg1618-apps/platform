@@ -188,15 +188,8 @@ and only cutting mains power brought it back. What is still open:
   change has reached `main`. Until then none of it is running.
 - **Prove the watchdog fires**, by the crash in that section, with someone
   beside the box. A BIOS that blocks the reset is invisible until then.
-- **A smart plug (智慧插座) on the box's power**, tested from its app — and
-  checked that it comes back ON after a mains cut. Only then turn on
-  `NETWATCH_POWEROFF_AFTER`; before, it does harm.
-- **Turning AMT off in the BIOS** is untested. AMT is what keeps the NIC on
-  standby power and can block resets Linux asks for; with it off, a reboot or
-  the watcher's resets may be enough. Needs someone at the box, and a restart
-  to try it.
+- **A DHCP reservation for the box** on the router above the H3C. A plug
+  cycle on 2026-10-08 moved it from one address to another; the tunnel does
+  not care, but the LAN route has to be found again each time.
 - **The router's log for 18:35 on 2026-10-05**, if it keeps one, is the only
   record of what dropped the link.
-
-Closing this — installed, the watchdog proven, the plug in place — deletes the
-"Standing reminder" section of the root `CLAUDE.md` in the same change.

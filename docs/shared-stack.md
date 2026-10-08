@@ -165,10 +165,12 @@ is whatever DHCP last handed out. Use it when the tunnel is down — which is
 exactly when the box most needs to be reached — and while building the box,
 before the tunnel and its Access application exist.
 
-**The tunnel needs the box online.** The box reaches the internet through a
-phone hotspot that travels with the owner, so while the owner is away from it
-the tunnel is down and `ssh homelab` times out. That is the first thing a
-timeout means, before it means anything is broken.
+**The tunnel needs the box online.** The box is on wired Ethernet at home,
+behind the H3C router, so a tunnel timeout means the box, its link or the
+home connection is down. Check a public hostname first: if
+`https://media.cg1618.com/api/health` answers, the box and the tunnel are up
+and the fault is on the SSH side. If nothing answers, "The box recovers itself"
+below is the next place to look.
 
 ## The apex page
 

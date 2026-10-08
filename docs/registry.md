@@ -1,6 +1,6 @@
 # The application registry
 
-Last verified: 2026-09-21
+Last verified: 2026-10-08
 
 `apps.yml` at the root of this repository is the one source of truth about which
 applications exist on the box and what each one is allowed to claim. The
@@ -553,6 +553,12 @@ of two lanes:
   `verify-gate` job asks the API whether that environment really has required
   reviewers. An environment that was never armed is created silently with zero
   protection rules, which looks identical to a working gate.
+
+Which lane a release takes is known before it merges: the app's
+`deploy/migrations added origin/main origin/dev` prints the revision files it
+would add, and any output means gated. The release PR says which, both when
+its text is proposed and when it is opened, so the owner knows a merge will
+wait for a second approval — `CLAUDE.md`, "Git Branches".
 
 The classification is re-checked on the box against its own `HEAD`, because a
 runner that was offline across two merges sees a push range that misses the

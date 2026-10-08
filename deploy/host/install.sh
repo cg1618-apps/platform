@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the box's own recovery: the hardware watchdog, reboot-on-panic, and
+# Install the box's own recovery: the hardware watchdog, reboot on panic or lockup, and
 # the Ethernet link watcher. The only part of it that needs root. Read it
 # before you run it.
 #
@@ -58,7 +58,8 @@ else
 fi
 echo "  watchdog timeout:       $(systemctl show -p RuntimeWatchdogUSec --value) (systemd feeds it at half that)"
 echo "  kernel.panic:           $(sysctl -n kernel.panic)"
+echo "  lockup panics:          soft $(sysctl -n kernel.softlockup_panic), hard $(sysctl -n kernel.hardlockup_panic)"
 echo "  cg1618-netwatch:        $(systemctl is-active cg1618-netwatch.service)"
 echo
-echo "The watchdog is configured, not proven. Proving it means hanging the box"
-echo "on purpose with someone beside it - see docs/shared-stack.md."
+echo "This box's firmware does not let the watchdog reset the board; lockups"
+echo "panic instead. See docs/shared-stack.md, \"The hardware watchdog does not fire\"."

@@ -437,6 +437,17 @@ one-line when it was described is exactly the one that grows.
     open it. A plan you proposed that went on to merge does not become approved
     because I approved the step before it — that is exactly how two releases
     were merged and deployed on 2026-09-25 without me pressing the button.
+  - **Say whether the release will need my approval after the merge — twice.**
+    A release that adds or modifies a migration takes the deploy's gated lane
+    and waits, after I merge, for my approval in the app's `production`
+    environment; nothing else about the PR shows it. So check before drafting —
+    the app's own hook answers it, `deploy/migrations added origin/main
+    origin/dev` after a `git fetch`, and any output means gated — and say it
+    in plain words **when you show me the text**, and **again when you give me
+    the link** to the opened PR. Say so too when the answer is no, so silence
+    never has to be read either way; and if the check cannot be run, say the
+    deploy is unclassifiable, which takes the gated lane anyway. The platform
+    repository has no gated lane, so its releases never need this.
   - **Anything that follows a release waits for my merge too** — pulling the
     platform on the box, `docker compose up -d`, watching the deploy. Do it
     once I say the release is merged, not before.

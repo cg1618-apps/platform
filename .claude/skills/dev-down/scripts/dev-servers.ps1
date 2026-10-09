@@ -184,15 +184,49 @@ foreach ($g in $groups.Values) {
 }
 
 if ($Stop) {
+    # Stop-Process and taskkill both end a process with exit code 1 or -1;
+    # this is the only way to choose the code.
+    Add-Type -Namespace DevServers -Name CleanExit -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool TerminateProcess(IntPtr handle, uint exitCode);
+[DllImport("kernel32.dll")]
+public static extern bool CloseHandle(IntPtr handle);
+'@
     foreach ($key in $Stop) {
         $match = $groups.Keys | Where-Object { $_ -ieq $key }
         if (-not $match) { Write-Warning "Nothing running under '$key'."; continue }
         $g = $groups[$match]
-        # The tree kill reaches everything still parented; the per-pid pass
-        # catches what the tree no longer reaches, such as a reload worker
-        # whose reloader has already gone.
-        foreach ($id in $g.roots) { & taskkill.exe /PID $id /T /F 2>&1 | Out-Null }
-        foreach ($id in $g.pids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        # A pane host is a powershell that dev.ps1 opened in Windows Terminal.
+        # Everything below it goes first; then the host itself is ended with
+        # exit code 0, because Windows Terminal closes a pane by itself only
+        # when its shell exits cleanly - killed the ordinary way (code 1) the
+        # pane stays open reading "process exited", and so does the window.
+        # The window cannot be closed directly: it usually shares one
+        # WindowsTerminal process with the session running this script.
+        $hosts = @($g.roots | Where-Object { $procs[$_].Name -match '^(powershell|pwsh)\.exe$' })
+        foreach ($id in $g.roots) {
+            if ($hosts -contains $id) {
+                Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" |
+                    ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F 2>&1 | Out-Null }
+            } else {
+                # The tree kill reaches everything still parented.
+                & taskkill.exe /PID $id /T /F 2>&1 | Out-Null
+            }
+        }
+        # What the trees no longer reach, such as a reload worker whose
+        # reloader has already gone.
+        foreach ($id in $g.pids) {
+            if ($hosts -notcontains $id) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        }
+        foreach ($id in $hosts) {
+            $h = [DevServers.CleanExit]::OpenProcess(0x0001, $false, $id)   # PROCESS_TERMINATE
+            if ($h -ne [IntPtr]::Zero) {
+                [void][DevServers.CleanExit]::TerminateProcess($h, 0)
+                [void][DevServers.CleanExit]::CloseHandle($h)
+            }
+        }
     }
     Start-Sleep -Seconds 2
     & $PSCommandPath -Platform $Platform -From $From

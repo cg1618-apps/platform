@@ -1,6 +1,6 @@
 ---
 name: dev-down
-description: Stop and clean up the development servers of the cg1618 app this session is in - every uvicorn, reload worker and Vite it has running, including stale leftovers and the Windows Terminal panes dev.ps1 opened - and free its ports. Other apps' servers are left alone unless the user agrees to stop them too. Use whenever the user wants the app's local servers gone - "close the dev server", "stop the app", "kill the servers", "clean up dev", "free the port", "port 8000 is stuck", "shut it down" - or before restarting a dev server that will not bind. Not for the shared PostgreSQL, Docker, or anything on the box.
+description: Completely shut down the development servers of the cg1618 app this session is in - backend (uvicorn and its reload workers), frontend (Vite), stale leftovers, and the Windows Terminal window dev.ps1 opened for them - and free its ports. Other apps' servers are left alone unless the user agrees to stop them too. Use whenever the user wants the app's local servers gone - "close the dev server", "stop the app", "kill the servers", "clean up dev", "free the port", "port 8000 is stuck", "shut it down" - or before restarting a dev server that will not bind. Not for the shared PostgreSQL, Docker, or anything on the box.
 ---
 
 # dev-down
@@ -72,12 +72,21 @@ port still listening, means something survived. Run it once more; if the port
 is still held, report the PID from `Get-NetTCPConnection -LocalPort <port>
 -State Listen` rather than escalating further.
 
-Windows Terminal panes that `dev.ps1` opened close as their shells are
-killed. That is expected.
+A stop is a complete shutdown: backend, frontend, and the Windows Terminal
+window `dev.ps1` opened for them. The script ends each pane's shell with exit
+code 0 after killing what runs inside it, because Windows Terminal closes a
+pane by itself only on a clean exit, and the window goes with its last pane.
+Never close the window by killing `WindowsTerminal.exe`: one process usually
+hosts every terminal window, this session's included.
+
+The script cannot see a window whose shells are already dead, from a run
+stopped some other way. That window stays open reading "process exited"; say
+so in the report so the user can close it.
 
 ## 5. Report
 
-One or two lines: which ports are now free, anything stale that was cleaned up
+One or two lines: which ports are now free and that the dev window closed,
+anything stale that was cleaned up
 (a leftover reloader, an orphaned worker), and what was deliberately left
 running - other apps' servers and, always, the shared `cg1618-dev-db`
 container and Docker Desktop. Those are shared by every app on the machine, so

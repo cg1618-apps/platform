@@ -1,6 +1,6 @@
 # Local development setup
 
-Last verified: 2026-09-24
+Last verified: 2026-10-09
 
 This page takes a Windows machine with nothing on it to a working copy of the
 whole project: the platform checkout, all four apps cloned inside it, the shared
@@ -176,6 +176,31 @@ venv\Scripts\ruff.exe check .
 
 `dev.cmd` starts Loki, Alloy and Grafana and nothing else. See
 [observability.md](observability.md).
+
+### Claude Code skills
+
+`.claude/skills/` in this repository holds skills for every app: `dev-up`
+starts the current app's development servers through its `dev.ps1`, and
+`dev-down` stops them, including the stranded reload workers described in
+[dev-ports.md](dev-ports.md), and asks before touching any other app's.
+
+A session started inside an app's directory **does not see them** where they
+are. Claude Code loads `.claude/skills/` from the repository it is working in,
+and each app is a repository of its own. So each machine links them into the
+user-level skills directory once, from this repository's root:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
+foreach ($s in 'dev-up', 'dev-down') {
+    New-Item -ItemType Junction -Path "$HOME\.claude\skills\$s" -Target "$PWD\.claude\skills\$s"
+}
+```
+
+A junction rather than a copy: the skills stay in git, and a `git pull` here
+updates them on this machine with nothing else to do. A junction needs no
+administrator rights, unlike a symbolic link. Run it from the main checkout,
+not a worktree, because the junction keeps pointing at whatever directory it
+was made from.
 
 ## 6. Checking it works
 

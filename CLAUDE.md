@@ -827,6 +827,15 @@ connection string with one in it.
   repository's own checks green. CI runs them **on the pull request**, not on
   a push to your branch, so a branch that was never PRed has been checked by
   nothing but you.
+- **CI runs the full test suite; a session does not.** Before opening a PR,
+  run the tests your change touches — the new and edited tests and their
+  neighbours — plus the fast checks (linters, the frontend tests and the
+  build), then open the PR and let CI's full run be the gate. A full local run
+  costs up to half an hour on a development machine and holds the machine-wide
+  lock ("One pytest at a time") against every other session, for a result CI
+  produces anyway on every pull request. A red CI is fixed on the branch
+  before it merges. Run the full suite locally only when asked, or to
+  reproduce a CI failure.
 - **Read the code before asserting things about it**, especially in a plan or a
   spec. Route paths, payload vocabularies, return types and which reporting
   channel a helper feeds are all things that read as obvious and are frequently

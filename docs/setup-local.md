@@ -87,6 +87,24 @@ the machine (see "Two Development Machines" in `CLAUDE.md`). These files are
 gitignored and per-machine. Write new ones here rather than copying them from
 the other machine.
 
+### Pulling all of them at once
+
+```powershell
+.\pull-all.cmd              # git pull --ff-only in the platform and every app
+.\pull-all.cmd -FetchOnly   # fetch everything; touch no checkout
+```
+
+The app list comes from `apps.yml`. Entries with `repo: null` are skipped.
+Each repository is pulled **on the branch it has checked out**. The script
+never switches branches, because that would move `HEAD` under any session
+working there. The summary prints every branch and shows any that is not
+`dev` or `main` in yellow.
+
+A repository is fetched but not pulled when it has uncommitted changes, a
+detached `HEAD` or no upstream. A pull that would need a merge is refused
+(`--ff-only`). In every one of those cases the repository is left as it was,
+the summary says why, and the exit code is 1.
+
 ## 3. The development database
 
 One container holds one database per app, the same arrangement production has.

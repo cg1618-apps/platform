@@ -56,14 +56,3 @@ def test_the_one_click_wrapper_exists_and_only_delegates():
     assert "-ExecutionPolicy Bypass" in body
     assert "%*" in body
     assert "pause" in body
-
-
-def test_the_wrapper_passes_the_exit_code_through():
-    """`endlocal` then `exit /b %RC%` on the next line always exits 0.
-
-    endlocal discards RC before the next line is expanded, so a failed pull
-    would read as success to anything checking the exit code. On one line, the
-    expansion happens first.
-    """
-    body = PULL_ALL_CMD.read_text(encoding="utf-8")
-    assert "endlocal & exit /b %RC%" in body

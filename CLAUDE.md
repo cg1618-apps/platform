@@ -728,26 +728,40 @@ those reasons; do not reintroduce it under another name.
 So:
 
 - **Do not** open a task table, a status file, a checklist doc, or a work log.
+  `docs/to-do-next.md` below is not one: it has no status and no claiming,
+  and says only what is decided and in what order.
 - **Do not** report status by editing a doc. Report it in the commit message,
   the pull request body, or to the owner directly.
 - **Do not** record which session is doing what. A branch has one owner by
   construction, and concurrent sessions each take their own worktree.
 
-Two things a branch cannot hold, and the only two **work-tracking** documents
-that go in `docs/` — the ordinary present-tense pages an app documents itself
-with are a different thing and are covered in "House style" above:
+Three things a branch cannot hold, and the only three **work-tracking**
+documents that go in `docs/` — the ordinary present-tense pages an app
+documents itself with are a different thing and are covered in "House style"
+above:
 
 - **`docs/open-items.md`** — known defects and unmade decisions that nobody is
   currently working on. Everything in it is open by definition: no status
   column, no claiming, no `todo`/`wip`/`done`. An item is closed by **deleting
   it in the same change that fixes it**, and the commit is the record.
+- **`docs/to-do-next.md`** — decided work that nobody has started, **in the
+  order it is to be built**. What to build has been settled with the owner;
+  an unmade decision belongs in `open-items.md` instead. The same rules as
+  that page: no status column, no claiming, no `todo`/`wip`/`done`. Each item
+  is a short statement and a pointer to its design; the detail stays in the
+  design. Work starts by cutting a branch, and an item is closed by
+  **deleting it in the same change that builds it**. It exists because a
+  design under `docs/superpowers/` is deleted with its task, so a decision
+  that has to wait for later work has nowhere else to survive — and because
+  the build order is a decision too, which no branch records. An app that
+  has nothing queued needs no such file.
 - **`docs/switching-environments.md`** — machine state that is not derivable
   from the code: which database is at which revision, where the recovery dumps
   are. Read it from the machine, not from memory, when you update it.
 
-Neither is a work log. If you find yourself writing a date, a session label, or
-a sentence in the past tense into either, it belongs in the commit message
-instead.
+None of the three is a work log. If you find yourself writing a date, a
+session label, or a sentence in the past tense into any of them, it belongs in
+the commit message instead.
 
 **Finishing a plan is two edits, not one.** Do both in the same commit, without
 being asked — this is the step that has needed chasing every time:

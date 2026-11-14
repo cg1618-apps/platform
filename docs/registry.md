@@ -545,7 +545,8 @@ important line to review in a new app's deploy workflow.
 Every repository's `ci.yml` - this one and each app's - opens its `test` job
 by classifying the pull request. If every changed file is under `docs/` or is
 a Markdown file anywhere (`README.md` and `CLAUDE.md` included), every later
-step is skipped and `test` passes at once; anything else runs every step.
+step is skipped and `test` passes at once; anything else, an empty diff
+included, runs every step.
 
 The job itself always runs, because `test` is the required check. A
 workflow-level `paths-ignore` would skip the whole workflow, report nothing,

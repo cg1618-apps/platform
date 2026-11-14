@@ -22,7 +22,7 @@ jobs:
       # below and passes in seconds. The job still runs and still reports
       # `test`, which is the required check; a workflow-level paths-ignore
       # would report nothing and leave the pull request blocked forever.
-      # Anything else runs everything. If the diff itself fails, the step
+      # Anything else, an empty diff included, runs everything. If the diff itself fails, the step
       # fails and so does the job: an unclassifiable change is never waved
       # through.
       - name: Decide whether this pull request changes anything but docs
@@ -33,7 +33,13 @@ jobs:
         run: |
           set -euo pipefail
           changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
-          code=false
+          # An empty diff is not "docs only": nothing proves it is safe to
+          # skip, so it runs everything, as the apps' workflows do.
+          if [ -z "${changed}" ]; then
+            code=true
+          else
+            code=false
+          fi
           while IFS= read -r f; do
             [ -z "${f}" ] && continue
             case "${f}" in

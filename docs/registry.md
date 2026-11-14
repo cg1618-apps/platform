@@ -540,6 +540,21 @@ organisation is public, the runner is a machine in a house, and a fork's pull
 request executing on it is the standard catastrophe. It is the single most
 important line to review in a new app's deploy workflow.
 
+## A pull request that changes only docs passes in seconds
+
+Every repository's `ci.yml` - this one and each app's - opens its `test` job
+by classifying the pull request. If every changed file is under `docs/` or is
+a Markdown file anywhere (`README.md` and `CLAUDE.md` included), every later
+step is skipped and `test` passes at once; anything else runs every step.
+
+The job itself always runs, because `test` is the required check. A
+workflow-level `paths-ignore` would skip the whole workflow, report nothing,
+and leave a docs-only pull request blocked by a check that never arrives. The
+classification is a `git diff` of the pull request's base and head, so it
+fails the job rather than passing it if the diff cannot be computed. A
+documentation change therefore merges as fast as review allows, and still
+goes through a pull request.
+
 ## How a deploy runs
 
 A merge to an app's `main` triggers its `deploy.yml`, which calls the

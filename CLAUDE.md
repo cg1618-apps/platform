@@ -850,6 +850,11 @@ connection string with one in it.
   produces anyway on every pull request. A red CI is fixed on the branch
   before it merges. Run the full suite locally only when asked, or to
   reproduce a CI failure.
+- **A docs-only pull request passes CI in seconds.** Every repository's CI
+  skips its checks when a pull request changes nothing but `docs/**` and
+  Markdown files, and still reports the required `test` as passed - so a
+  doc change merges into `dev` as soon as it is opened. Mixing a doc change
+  into a code PR runs everything, as it should. See `docs/registry.md`.
 - **Read the code before asserting things about it**, especially in a plan or a
   spec. Route paths, payload vocabularies, return types and which reporting
   channel a helper feeds are all things that read as obvious and are frequently

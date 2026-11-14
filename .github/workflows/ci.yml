@@ -12,40 +12,79 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The whole history, so the base of the pull request is present for
+          # the diff below.
+          fetch-depth: 0
+
+      # A pull request that changes only documentation - anything under docs/
+      # and any Markdown file, README and CLAUDE.md included - skips every step
+      # below and passes in seconds. The job still runs and still reports
+      # `test`, which is the required check; a workflow-level paths-ignore
+      # would report nothing and leave the pull request blocked forever.
+      # Anything else runs everything. If the diff itself fails, the step
+      # fails and so does the job: an unclassifiable change is never waved
+      # through.
+      - name: Decide whether this pull request changes anything but docs
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+          code=false
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              docs/*|*.md) ;;
+              *) code=true; echo "not docs: ${f}" ;;
+            esac
+          done <<< "${changed}"
+          echo "code=${code}" >> "${GITHUB_OUTPUT}"
+          echo "runs the full checks: ${code}"
 
       - uses: actions/setup-python@v7
+        if: steps.scope.outputs.code == 'true'
         with:
           python-version: "3.13"
 
       - name: Install dependencies
+        if: steps.scope.outputs.code == 'true'
         run: pip install -r requirements-dev.txt
 
       # Runs the schema check and the policy check against the committed
       # registry, which is what the box will later derive its ingress from.
       - name: Validate the registry
+        if: steps.scope.outputs.code == 'true'
         run: python bin/validate_apps.py
 
       # The ingress that will be served is a committed, generated file. This is
       # what stops it being hand-edited into routing a hostname nobody decided
       # to route.
       - name: Check the generated ingress matches the registry
+        if: steps.scope.outputs.code == 'true'
         run: python bin/generate_ingress.py --check
 
       # The apex page is the other generated artefact. Same reasoning: the page
       # that will be served appears in the diff where a person reads it.
       - name: Check the generated apex page matches the registry
+        if: steps.scope.outputs.code == 'true'
         run: python bin/generate_apex.py --check
 
       - name: Run the tests
+        if: steps.scope.outputs.code == 'true'
         run: python -m pytest tests/ -q
 
       # Pinned in requirements-dev.txt rather than floating: ruff's default
       # rule set changes between releases, so an unpinned lint step fails a
       # pull request that changed nothing about the code.
       - name: Lint
+        if: steps.scope.outputs.code == 'true'
         run: ruff check .
 
       - name: Lint the workflows
+        if: steps.scope.outputs.code == 'true'
         uses: raven-actions/actionlint@v2
 
       # Found by shebang rather than by extension. The scripts in bin/ are
@@ -59,6 +98,7 @@ jobs:
       # `#!/usr/bin/env sh` entirely, and recursed into __pycache__ - the same
       # "looks thorough, lints nothing" shape the shebang search replaced.
       - name: Lint the shell scripts
+        if: steps.scope.outputs.code == 'true'
         run: |
           scripts=()
           while IFS= read -r -d '' f; do
@@ -90,6 +130,7 @@ jobs:
       # mounts resolved, paths present, config parsed - which is the class of
       # failure that reaches the box.
       - name: Smoke-test the shared stack
+        if: steps.scope.outputs.code == 'true'
         run: |
           set -euo pipefail
 
@@ -161,6 +202,7 @@ jobs:
       # network and has a shell; the loki image is distroless and has neither
       # a shell nor wget, which is why Loki carries no healthcheck.
       - name: Prove Loki answers and Grafana found its datasource
+        if: steps.scope.outputs.code == 'true'
         run: |
           set -euo pipefail
 
@@ -207,7 +249,7 @@ jobs:
           case "${labels}" in *'"container"'*) ;; *) echo "loki has no container label; nothing reached it"; exit 1 ;; esac
 
       - name: What the observability containers said
-        if: always()
+        if: always() && steps.scope.outputs.code == 'true'
         run: |
           docker compose -f docker-compose.prod.yml ps || true
           for c in loki alloy grafana; do
@@ -218,7 +260,7 @@ jobs:
           done
 
       - name: Tear the stack down
-        if: always()
+        if: always() && steps.scope.outputs.code == 'true'
         run: |
           docker compose -f docker-compose.prod.yml down -v || true
           rm -f .env "${GITHUB_WORKSPACE}/.ci-credentials.json"

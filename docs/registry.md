@@ -555,6 +555,9 @@ fails the job rather than passing it if the diff cannot be computed. A
 documentation change therefore merges as fast as review allows, and still
 goes through a pull request.
 
+The classifying step's log names every file it found that is not a doc, so a
+run expected to be fast that ran everything says which file caused it.
+
 ## How a deploy runs
 
 A merge to an app's `main` triggers its `deploy.yml`, which calls the

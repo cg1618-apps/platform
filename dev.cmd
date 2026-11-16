@@ -31,5 +31,6 @@ if not "%RC%"=="0" (
     pause
 )
 
-endlocal
-exit /b %RC%
+REM On one line: %RC% expands before endlocal discards it. On two, the exit
+REM code is always 0.
+endlocal & exit /b %RC%

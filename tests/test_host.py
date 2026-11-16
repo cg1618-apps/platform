@@ -69,6 +69,60 @@ def test_the_default_poweroff_is_zero():
     assert 'POWEROFF_AFTER="${NETWATCH_POWEROFF_AFTER:-0}"' in NETWATCH.read_text(encoding="utf-8")
 
 
+# --- a link with no address -------------------------------------------------
+
+
+def addr_step_due(missing_for: int, done: int) -> str:
+    return bash_call(f"addr_step_due {missing_for} {done}")
+
+
+def test_a_lease_gets_its_normal_chance_first():
+    # Right after carrier returns or the box boots, networkd is still asking.
+    assert addr_step_due(0, 0) == ""
+    assert addr_step_due(59, 0) == ""
+
+
+def test_the_address_steps_run_in_order_and_once_each():
+    assert addr_step_due(60, 0) == "renew"
+    assert addr_step_due(100, 1) == ""
+    assert addr_step_due(180, 1) == "reconfigure"
+    assert addr_step_due(200, 2) == ""
+
+
+def test_the_address_steps_never_run_out():
+    # 2026-11-16: forty-one minutes with carrier and no lease. Unlike the link
+    # steps, a renew keeps falling due for as long as the address is missing.
+    assert addr_step_due(479, 2) == ""
+    assert addr_step_due(480, 2) == "renew"
+    assert addr_step_due(600, 3) == ""
+    assert addr_step_due(780, 3) == "renew"
+    # Two named steps and seven renews in, the eighth is due at 180 + 8 * 300.
+    assert addr_step_due(2579, 9) == ""
+    assert addr_step_due(2580, 9) == "renew"
+
+
+@pytest.mark.parametrize(
+    ("ip_output", "expected"),
+    [
+        ("2: eno1    inet 192.168.100.165/24 brd 192.168.100.255 scope global dynamic eno1", "1"),
+        ("", "0"),
+    ],
+)
+def test_has_ipv4(ip_output, expected):
+    # `ip` is shadowed by a function, so this reads what the script makes of
+    # its output. The empty case is the 2026-11-16 one: carrier, no lease.
+    assert bash_call(f"ip() {{ printf '%s' '{ip_output}'; }}; has_ipv4") == expected
+
+
+def test_has_ipv4_asks_only_for_global_ipv4():
+    # Link-local and IPv6 addresses do not get the tunnel out, so they must not
+    # count. The fake `ip` answers only when asked for exactly that.
+    snippet = (
+        "ip() { [ \"$*\" = '-4 -o addr show dev eno1 scope global' ] && echo inet; }; has_ipv4"
+    )
+    assert bash_call(snippet) == "1"
+
+
 # --- reading the link -------------------------------------------------------
 
 

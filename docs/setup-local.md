@@ -1,6 +1,6 @@
 # Local development setup
 
-Last verified: 2026-09-24
+Last verified: 2026-10-09
 
 This page takes a Windows machine with nothing on it to a working copy of the
 whole project: the platform checkout, all four apps cloned inside it, the shared
@@ -86,6 +86,24 @@ Then write a `CLAUDE.local.md` at the platform root and one in each app, naming
 the machine (see "Two Development Machines" in `CLAUDE.md`). These files are
 gitignored and per-machine. Write new ones here rather than copying them from
 the other machine.
+
+### Pulling all of them at once
+
+```powershell
+.\pull-all.cmd              # git pull --ff-only in the platform and every app
+.\pull-all.cmd -FetchOnly   # fetch everything; touch no checkout
+```
+
+The app list comes from `apps.yml`. Entries with `repo: null` are skipped.
+Each repository is pulled **on the branch it has checked out**. The script
+never switches branches, because that would move `HEAD` under any session
+working there. The summary prints every branch and shows any that is not
+`dev` or `main` in yellow.
+
+A repository is fetched but not pulled when it has uncommitted changes, a
+detached `HEAD` or no upstream. A pull that would need a merge is refused
+(`--ff-only`). In every one of those cases the repository is left as it was,
+the summary says why, and the exit code is 1.
 
 ## 3. The development database
 
@@ -176,6 +194,31 @@ venv\Scripts\ruff.exe check .
 
 `dev.cmd` starts Loki, Alloy and Grafana and nothing else. See
 [observability.md](observability.md).
+
+### Claude Code skills
+
+`.claude/skills/` in this repository holds skills for every app: `dev-up`
+starts the current app's development servers through its `dev.ps1`, and
+`dev-down` stops them, including the stranded reload workers described in
+[dev-ports.md](dev-ports.md), and asks before touching any other app's.
+
+A session started inside an app's directory **does not see them** where they
+are. Claude Code loads `.claude/skills/` from the repository it is working in,
+and each app is a repository of its own. So each machine links them into the
+user-level skills directory once, from this repository's root:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
+foreach ($s in 'dev-up', 'dev-down') {
+    New-Item -ItemType Junction -Path "$HOME\.claude\skills\$s" -Target "$PWD\.claude\skills\$s"
+}
+```
+
+A junction rather than a copy: the skills stay in git, and a `git pull` here
+updates them on this machine with nothing else to do. A junction needs no
+administrator rights, unlike a symbolic link. Run it from the main checkout,
+not a worktree, because the junction keeps pointing at whatever directory it
+was made from.
 
 ## 6. Checking it works
 

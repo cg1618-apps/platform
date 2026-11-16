@@ -413,6 +413,7 @@ here reaches the box only by re-running it.
 | The kernel hangs without the lockup detector seeing it | Nothing on the box. The hardware watchdog is configured but does not reset this board — see below. The plug. |
 | `eno1` loses its link for a few seconds | Nothing needs to. A three-second drop on 2026-10-03 came back on its own. |
 | `eno1` stays down for minutes | `cg1618-netwatch`: at 3 min it saves diagnostics and bounces the interface, at 6 min it rebinds the driver, at 10 min it removes the device and rescans the PCI bus. |
+| `eno1` has its link but no address | `cg1618-netwatch` again: at 1 min it saves diagnostics and asks networkd for a fresh DHCP lease, at 3 min it reconfigures the interface, and after that it asks for a fresh lease every 5 min for as long as the address stays missing. See "The link that came back without an address". |
 | None of that works | Cutting mains power, with the smart plug — see below. |
 
 ### The link that stayed down
@@ -440,6 +441,23 @@ reliably adds is the diagnostics, which nobody had the first time:
 journalctl -u cg1618-netwatch          # when it went down, which step ran, when it came back
 ls /var/log/cg1618-netwatch/           # the NIC's state while it was down
 ```
+
+### The link that came back without an address
+
+On 2026-11-16 at 19:21:59 `eno1` lost carrier and had it back 85 seconds later,
+so the link watcher saw nothing worth acting on. But the DHCP lease went with
+the link, and the router at `192.168.100.1` did not hand out another until
+20:04. For those forty-one minutes the box had a link and no address, so no
+route out, and the tunnel was down. Two plug cycles that evening booted into
+the same wait — eleven minutes on the boot that finally got one — which is why
+a plug cycle did not help: the box was fine, and the lease was not coming.
+
+So the watcher also wants a global IPv4 address whenever the link is up. At
+1 min without one it saves diagnostics (`*-no-address.txt` in the same
+directory) and runs `networkctl renew`; at 3 min `networkctl reconfigure`; and
+after that a renew every 5 min, with no limit. Those restart networkd's DHCP
+client rather than wait out its backoff. They cannot make a router answer that
+is not answering, so as with the link, what they reliably add is the record.
 
 ### The smart plug, and why the box never powers itself off
 

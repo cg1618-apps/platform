@@ -253,6 +253,31 @@ would otherwise discover: building the frontend (a bundle that does not compile
 should fail the pull request, not the deploy) and `shellcheck` on any shell the
 app ships.
 
+### What runs when
+
+An app's `test` job runs a different amount depending on what triggered it.
+It stays **one job named `test`** whose steps are conditioned on the event and
+the changed paths, so `test` remains the single required check and no ruleset
+changes with it.
+
+| trigger | runs |
+| --- | --- |
+| pull request into `dev` | the fast checks: one migration head, linters, unit tests, frontend lint, tests and build |
+| …that touches migrations or models | the fast checks, plus the from-zero build, the release round trip and that revision's own tests |
+| `merge_group` (the merge queue into `dev`) | the full suite |
+| pull request into `main` (the release) | the full suite |
+
+A docs-only change still skips everything, whatever the trigger (see "A pull
+request that changes only docs passes in seconds" below).
+
+**This is only safe where the app merges into `dev` through a merge queue**,
+because the queue's run is where the full suite now happens before anything
+lands. The queue is a `dev` ruleset of its own, covering `refs/heads/dev`
+only, so a release into `main` is merged by hand as before. The workflow must
+trigger on `merge_group` **before** the queue is enabled; otherwise a queued
+pull request waits for a `test` that never runs. `media`'s `ci.yml` is the
+worked example of a workflow that serves both events.
+
 ## How an app's tests use the shared server
 
 Every app's tests run against one PostgreSQL server — the platform's dev

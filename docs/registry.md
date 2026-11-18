@@ -285,24 +285,33 @@ database on a laptop, a service container in CI. What makes two test runs
 collide is not the shared server but a **shared database name**: a run that
 drops and recreates `food_test` wipes every other run using `food_test`, and
 the result is spurious "relation does not exist" and unique-constraint
-failures that look like real breakage. That is the whole reason the
-machine-wide pytest lock in `CLAUDE.md` exists.
+failures that look like real breakage. A machine-wide pytest lock used to
+serialise every run for that reason; it is retired now that every app meets
+the rule below.
 
 ### One database per test run
 
-- **A test session creates `<app>_test_<uuid>`**, builds the schema in it, and
-  drops it `WITH (FORCE)` when the session ends. The name is never fixed, and
-  never read from `.env`.
+- **A test session creates `<app>_test_<epoch>_<hex>`**, builds the schema in
+  it, and drops it `WITH (FORCE)` when the session ends. The name is never
+  fixed, and never read from `.env`.
 - **At start, it drops any leftover `<app>_test_*` database that has no
-  connections**, so a crashed or interrupted run leaves nothing behind for long.
-  A database with connections belongs to a run in progress and is left alone.
+  connections and is more than two hours old**, so a crashed or interrupted
+  run leaves nothing behind for long. The age is what the epoch in the name is
+  for: a database a neighbouring run has just created may have no connection
+  yet — between `CREATE DATABASE` and its migration subprocess connecting —
+  and must not be swept in that gap. A database with connections is never
+  touched.
+- **Connect on `127.0.0.1`, not `localhost`.** Windows resolves `localhost` to
+  `::1` first, the dev database publishes on `127.0.0.1` only, and every new
+  connection then waits about 21 s before falling back — which turns
+  scratch-database tests from seconds into many minutes. Each app's
+  `tests/databases.py` rewrites `localhost` when it builds a URL.
 - **Every scratch database follows the same rule**, not only the main one. A
   from-zero migration test that builds into a fixed name such as
   `<app>_<topic>_migration_test` collides with itself in exactly the same way.
-  `media`'s `scratch_databases` fixture in
-  `tests/api/test_migrations_build_the_schema.py` is the pattern to copy.
+  Every app keeps this in `tests/databases.py`; `media`'s is the reference.
 
-**An app is lock-free only when, besides the above:**
+**Runs are isolated only when, besides the above:**
 
 - no test writes outside `tmp_path` (a fixed file path is a fixed database
   name by another route), and
@@ -310,10 +319,9 @@ machine-wide pytest lock in `CLAUDE.md` exists.
   database with a fixed name — since those are shared by every database on the
   server.
 
-**The lock stays until all four apps meet this.** One app on a fixed name
-still breaks the guarantee for itself, and a session cannot tell from the
-outside which apps have switched. The rule in `CLAUDE.md` is removed in the
-same change that records the new one there, once the last app lands.
+**All four apps meet this, and a new test that breaks it is a defect.** One
+fixed name brings the collisions back for every run of that app, and a session
+cannot tell from the outside that it has happened.
 
 One database per run is also the prerequisite for running tests in parallel
 within one run (pytest-xdist, one database per worker). Whether to do that is
@@ -409,15 +417,12 @@ stopping the container stops all of them.
 
 **Per-app containers are a live option and were deliberately not taken here.**
 The prize would not be isolation — apps are already isolated by database, and
-nothing an app does can now touch the server — it would be **parallel test
-runs** — though the lock does not actually need them: it exists because each
-app's tests use a fixed database name, and one database per test run removes
-it on one shared server (see "How an app's tests use the shared server"). The cost is a port and a postgres process per app, dev
-diverging from production, and a lock that has to become per-app in the same
-instant across five repositories or two sessions take different locks and run
-concurrently, which is the failure the lock exists to prevent. If it is ever
-done, the services are added to `docker-compose.dev-db.yml` as `db-media`,
-`db-food` and so on.
+nothing an app does can now touch the server — and parallel test runs, once
+the other argument for it, are already had on one shared server by giving
+every run its own database (see "How an app's tests use the shared server").
+The cost is a port and a postgres process per app and dev diverging from
+production. If it is ever done, the services are added to
+`docker-compose.dev-db.yml` as `db-media`, `db-food` and so on.
 
 ## Adding an application
 

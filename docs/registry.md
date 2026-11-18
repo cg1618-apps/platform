@@ -339,9 +339,15 @@ Two kinds of test guard migrations, and they have different lifetimes.
 
 **A revision-specific test** — one that exercises what a particular revision
 does to existing data — is written in the same branch as its revision. It is
-deleted only once that revision is **deployed**: the box is at that revision,
-not merely `main` holding it, since the box can lag `main` (see "How a deploy
-runs"). The deletion is a separate test-only pull request, swept once per
+deleted only once that revision is **deployed**, not merely held by `main`,
+since the box can lag `main` (see "How a deploy runs"). The evidence is
+**the latest Deploy run for `main`'s head commit finished green**
+(`gh run list -R cg1618-apps/<app> -w deploy.yml -L 1`, its sha checked
+against `main`'s). That needs no route to the box: `bin/deploy` runs the
+migrations and reports success only once the health check answers, so a green
+run for that commit means production is at its head revision. A run still
+pending — the runner offline, or a gated release awaiting approval — is not
+evidence. The deletion is a separate test-only pull request, swept once per
 release — never the branch that adds the revision, and never on the strength
 of a merge alone.
 

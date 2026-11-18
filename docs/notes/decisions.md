@@ -306,8 +306,10 @@ is not in any app's project.
 have answered the same instinct - one app going down should not drag the others
 - but that instinct is already satisfied by the move, since apps are isolated
 by database and no app's compose can reach the server. What per-app containers
-would actually buy is **parallel test runs**: the machine-wide pytest lock
-exists only because four apps share one server. What they cost is a port and a
+would actually buy is **parallel test runs** — and those turned out not to need
+it, because the machine-wide pytest lock exists only because each app's tests
+use a fixed database name, which one database per run fixes on a shared
+server (`registry.md`, "How an app's tests use the shared server"). What they cost is a port and a
 postgres process per app, development diverging from production, and a lock
 that must become per-app in the same instant across five repositories - and if
 it does not, two sessions take different locks and run pytest concurrently,

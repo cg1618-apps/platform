@@ -253,6 +253,82 @@ would otherwise discover: building the frontend (a bundle that does not compile
 should fail the pull request, not the deploy) and `shellcheck` on any shell the
 app ships.
 
+## How an app's tests use the shared server
+
+Every app's tests run against one PostgreSQL server — the platform's dev
+database on a laptop, a service container in CI. What makes two test runs
+collide is not the shared server but a **shared database name**: a run that
+drops and recreates `food_test` wipes every other run using `food_test`, and
+the result is spurious "relation does not exist" and unique-constraint
+failures that look like real breakage. That is the whole reason the
+machine-wide pytest lock in `CLAUDE.md` exists.
+
+### One database per test run
+
+- **A test session creates `<app>_test_<uuid>`**, builds the schema in it, and
+  drops it `WITH (FORCE)` when the session ends. The name is never fixed, and
+  never read from `.env`.
+- **At start, it drops any leftover `<app>_test_*` database that has no
+  connections**, so a crashed or interrupted run leaves nothing behind for long.
+  A database with connections belongs to a run in progress and is left alone.
+- **Every scratch database follows the same rule**, not only the main one. A
+  from-zero migration test that builds into a fixed name such as
+  `<app>_<topic>_migration_test` collides with itself in exactly the same way.
+  `media`'s `scratch_databases` fixture in
+  `tests/api/test_migrations_build_the_schema.py` is the pattern to copy.
+
+**An app is lock-free only when, besides the above:**
+
+- no test writes outside `tmp_path` (a fixed file path is a fixed database
+  name by another route), and
+- no test creates a cluster-wide object — `CREATE ROLE`, a tablespace, a
+  database with a fixed name — since those are shared by every database on the
+  server.
+
+**The lock stays until all four apps meet this.** One app on a fixed name
+still breaks the guarantee for itself, and a session cannot tell from the
+outside which apps have switched. The rule in `CLAUDE.md` is removed in the
+same change that records the new one there, once the last app lands.
+
+One database per run is also the prerequisite for running tests in parallel
+within one run (pytest-xdist, one database per worker). Whether to do that is
+a separate decision, not part of this one.
+
+### Migration tests: what is permanent and what is retired
+
+Two kinds of test guard migrations, and they have different lifetimes.
+
+**Generic guards stay forever:**
+
+- the chain builds from zero and the result matches the models;
+- there is exactly one head;
+- the release round trip, below.
+
+**A revision-specific test** — one that exercises what a particular revision
+does to existing data — is written in the same branch as its revision. It is
+deleted only once that revision is **deployed**: the box is at that revision,
+not merely `main` holding it, since the box can lag `main` (see "How a deploy
+runs"). The deletion is a separate test-only pull request, swept once per
+release — never the branch that adds the revision, and never on the strength
+of a merge alone.
+
+**A test finds the revision before its own through the migration tool's script
+directory**, never by a hard-coded parent id. Reparenting a revision to fix
+two heads (`CLAUDE.md`, "Git Branches") changes its parent, and a test with
+the old id written into it would then test the wrong step without failing.
+
+### The round trip covers the release, not one step
+
+The round-trip test downgrades to **the revision `origin/main` is at** — what
+a rollback of the release would do — then upgrades back to head and compares
+the schema with the one it started from. When `dev` holds no revision beyond
+`main`, it falls back to one step (`-1`).
+
+One step is not enough, because concurrent sessions put several revisions into
+one release, and a downgrade of only the head leaves every earlier one in the
+release unexercised until the day it is needed. Each app implements this with
+its own migration tool.
+
 ## Development ports
 
 Every app must be runnable at the same time on one laptop, so the ports are
@@ -309,8 +385,9 @@ stopping the container stops all of them.
 **Per-app containers are a live option and were deliberately not taken here.**
 The prize would not be isolation — apps are already isolated by database, and
 nothing an app does can now touch the server — it would be **parallel test
-runs**, since the machine-wide pytest lock exists precisely because four apps
-share one server. The cost is a port and a postgres process per app, dev
+runs** — though the lock does not actually need them: it exists because each
+app's tests use a fixed database name, and one database per test run removes
+it on one shared server (see "How an app's tests use the shared server"). The cost is a port and a postgres process per app, dev
 diverging from production, and a lock that has to become per-app in the same
 instant across five repositories or two sessions take different locks and run
 concurrently, which is the failure the lock exists to prevent. If it is ever

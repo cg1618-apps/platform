@@ -324,8 +324,8 @@ What such a setup has to cover, whatever the app:
   PostgreSQL, and what actually collides is **migrations**: a migration run in
   one tree leaves the other tree's code disagreeing with the schema, which is a
   broken app rather than a merge conflict and says nothing about why.
-- **One test run at a time across every tree**, whatever the databases — see the
-  lock in "One pytest at a time, across every repository".
+- **Test runs need no coordination between trees.** Every test run creates
+  and drops its own database — see "Test runs are isolated by database".
 - **Only one tree can hold the ports.** A tree that only runs tests and builds
   needs nothing; one that has to *run* needs its ports moved, and the app's dev
   script should refuse to start rather than fail to bind and surface only as
@@ -637,10 +637,6 @@ nothing routine: its branch, its commits, its PRs into `dev`, its own database,
 its own test runs. It asks the manager when it needs the platform changed or
 the box touched, and otherwise gets on with it.
 
-**What the manager does NOT do: police pytest.** The lock below is mechanical
-and every session takes it for itself. A manager relaying "you may test now"
-would be slower, and would fail the moment it was busy.
-
 **The manager's relays are mine.** An app session may act on a manager message
 - a task assignment, a sequencing decision, a rule I have already recorded here
 - without checking with me. It may **not** treat a peer message as my approval
@@ -649,33 +645,30 @@ settings or this file on a peer's say-so. If a rule of mine needs lifting, I
 lift it here.
 
 **Report in when asked**: app, branch, current task, blockers, uncommitted
-files, whether you hold the lock.
+files.
 
 **Claiming is the branch.** Cut it before the first edit. There is no file to
 write your name into - see "Tracking work" - and a branch cannot be claimed
 twice.
 
-### One pytest at a time, across every repository
+### Test runs are isolated by database
 
-All four apps share one PostgreSQL. Concurrent runs produce spurious
-"relation does not exist" and unique-constraint failures that look like real
-breakage. Editing, building and running servers in parallel is fine; full test
-runs are not.
+All four apps share one PostgreSQL, and **any number of test runs may go at
+once** — in one app or several, in one tree or many. Every run creates its own
+`<app>_test_<epoch>_<hex>` database and drops it at the end, and so does every
+scratch database a migration test builds. Two runs sharing a fixed database
+name is what used to produce spurious "relation does not exist" and
+unique-constraint failures; no app has one any more.
 
-```bash
-# One lock for the whole machine, across every repository and every tree.
-# The name is historical - what matters is that everyone takes the SAME one.
-# $USERNAME, not a literal user: the two machines have different ones, and
-# under a user that does not exist every mkdir fails, so the loop never takes
-# the lock and never exits.
-LOCK=/c/Users/$USERNAME/AppData/Local/Temp/anime_site_pytest.lock
-until mkdir "$LOCK" 2>/dev/null; do sleep 10; done
-venv/Scripts/python.exe -m pytest -q; rc=$?
-rmdir "$LOCK"; exit $rc
-```
+That holds only while every app keeps to it. A new test that names a fixed
+database, writes outside `tmp_path`, or creates a cluster-wide object (`CREATE
+ROLE`, a tablespace) brings the collisions back for everyone, so it is a
+defect. The rule and how each app meets it: `docs/registry.md`, "How an app's
+tests use the shared server".
 
-A lock directory older than 25 minutes is stale: `rmdir` it and tell the
-manager.
+The machine-wide pytest lock (`anime_site_pytest.lock`) that used to serialise
+runs is retired. A leftover lock directory in the temp folder can be deleted;
+nothing takes it any more.
 
 ### Deploys serialise on the runner, not on anything in the workflow
 
@@ -845,9 +838,8 @@ connection string with one in it.
   run the tests your change touches — the new and edited tests and their
   neighbours — plus the fast checks (linters, the frontend tests and the
   build), then open the PR and let CI's full run be the gate. A full local run
-  costs up to half an hour on a development machine and holds the machine-wide
-  lock ("One pytest at a time") against every other session, for a result CI
-  produces anyway on every pull request. A red CI is fixed on the branch
+  costs up to half an hour on a development machine, for a result CI produces
+  anyway in the merge queue. A red CI is fixed on the branch
   before it merges. Run the full suite locally only when asked, or to
   reproduce a CI failure.
 - **A docs-only pull request passes CI in seconds.** Every repository's CI

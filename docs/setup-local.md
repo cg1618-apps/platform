@@ -130,17 +130,14 @@ starts, create each app's databases yourself:
 
 ```powershell
 docker exec cg1618-dev-db createdb -U postgres media
-docker exec cg1618-dev-db createdb -U postgres media_test
 docker exec cg1618-dev-db createdb -U postgres food
-docker exec cg1618-dev-db createdb -U postgres food_test
 docker exec cg1618-dev-db createdb -U postgres travel
-docker exec cg1618-dev-db createdb -U postgres travel_test
 docker exec cg1618-dev-db createdb -U postgres art
 ```
 
-The `_test` databases are the ones each app's API tests wipe and rebuild, so
-never put real data in one. `art`'s tests create and drop their own scratch
-database, so it needs no `_test` database.
+There are no `_test` databases to create. Every test run creates its own
+`<app>_test_<epoch>_<hex>` database and drops it when it ends, so anything
+named `<app>_test_*` belongs to a run and is never a place for real data.
 
 ## 4. Each app
 
@@ -235,9 +232,9 @@ In this repository, `pytest -q` collects `tests/` only — `pytest.ini` pins
 would otherwise walk into four other repositories and fail to import their
 dependencies.
 
-Every app shares one PostgreSQL, so take the machine-wide pytest lock before a
-full test run. See "One pytest at a time, across every repository" in
-`CLAUDE.md`.
+Every app shares one PostgreSQL, and test runs need no coordination: each
+creates and drops its own database. See "Test runs are isolated by database"
+in `CLAUDE.md`.
 
 Each app should also answer on its health route at its uvicorn port:
 `/api/health` for `media` and `travel`, `/health` for `food` and `art`.

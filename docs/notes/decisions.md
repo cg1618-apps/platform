@@ -306,15 +306,13 @@ is not in any app's project.
 have answered the same instinct - one app going down should not drag the others
 - but that instinct is already satisfied by the move, since apps are isolated
 by database and no app's compose can reach the server. What per-app containers
-would actually buy is **parallel test runs** — and those turned out not to need
-it, because the machine-wide pytest lock exists only because each app's tests
-use a fixed database name, which one database per run fixes on a shared
-server (`registry.md`, "How an app's tests use the shared server"). What they cost is a port and a
-postgres process per app, development diverging from production, and a lock
-that must become per-app in the same instant across five repositories - and if
-it does not, two sessions take different locks and run pytest concurrently,
-which is precisely what the lock prevents. Worth doing on its own merits one
-day, not worth smuggling into a move.
+was argued to buy is **parallel test runs**, and that argument did not hold:
+what serialised test runs was never the shared server but each app's fixed
+test database name, and one database per run gave parallel runs on the shared
+server instead (`registry.md`, "How an app's tests use the shared server").
+What per-app containers cost is a port and a postgres process per app and
+development diverging from production. Worth doing on its own merits one day,
+not worth smuggling into a move.
 
 **Production was never wrong, and was renamed separately.** `cg1618-db-1` in
 `cg1618_pgdata` has always belonged to the platform. Two `anime_site` names

@@ -135,8 +135,8 @@ not quietly make `media`'s choices mandatory. Copying its *conventions* is the
 default; copying its *stack* is each app's own decision, and the other three
 have already made theirs.
 Where an app diverges deliberately — `art`'s stopwatch is the expected case —
-**record the divergence and its reason in that app's
-`docs/notes/decisions.md`**, so a later reader can tell a decision from an
+**record the divergence and its reason in a file under that app's
+`docs/notes/decisions/`**, so a later reader can tell a decision from an
 accident.
 
 What consistency covers, concretely:
@@ -166,11 +166,35 @@ provides.
 **Every feature, rule and behaviour is documented as Markdown in that app's
 `docs/`**, and `media/docs/` is the shape to copy — `api.md`, `data-model.md`,
 `business-rules.md`, `authorization.md`, `entry-types.md`, `testing.md`,
-`notes/decisions.md`. An app need not have every one of those pages, but the
+`notes/decisions/`. An app need not have every one of those pages, but the
 pages it has should be named and organised the same way. Write them
 present-tense, describing what is true now, and **land the doc change in the
 same commit as the behaviour change** — a behaviour change with no doc change
 is an unfinished one.
+
+**Decisions are one file each: `docs/notes/decisions/YYYY-MM-DD-<topic>.md`.**
+Each file holds a single decision: a `# Title`, then the reasoning and the
+alternatives that were rejected. This applies to every repository, the
+platform included. Several open PRs each appending to one shared
+`decisions.md` turned every merge after the first into a conflict. Each
+conflict pulled its PR out of the merge queue and cost another full CI run.
+Two PRs that each add a file of their own cannot conflict.
+
+- **No index.** A list of entries is itself a file every PR appends to, which
+  brings the conflict back. The date-prefixed file names are the index;
+  `README.md` in that directory explains the convention and lists nothing.
+- **A decision file holds the *why*, not the *what*.** Present-tense
+  behaviour, rules and schema go on the matching page (`api.md`,
+  `business-rules.md`, `data-model.md`, …). Procedure goes next to the thing
+  it operates. A decision file keeps only reasoning that still binds: why it
+  is this way, and which alternatives were rejected, so nobody proposes them
+  again unaware.
+- **Delete a decision when it stops binding.** A decision about code that no
+  longer exists, or one a later decision reversed, is history, and git
+  already keeps it. A reversal gets its own new file, and the file it
+  overturns is deleted in the same commit.
+- Docs stay in the PR that changes the behaviour. Never split them into a
+  docs-only PR of their own.
 
 That is not a reopening of `docs/PROGRESS.md`. See "Tracking work": status
 lives in the branch, the pull request and the commits, working scaffolding
@@ -782,8 +806,8 @@ the commit message instead.
 being asked — this is the step that has needed chasing every time:
 
 1. **Move what is worth keeping out of the spec and plan**, into the ordinary
-   docs: design rationales and rejected alternatives into
-   `docs/notes/decisions.md`, present-tense behaviour into the matching `docs/`
+   docs: design rationales and rejected alternatives into a new file under
+   `docs/notes/decisions/`, present-tense behaviour into the matching `docs/`
    page, operational procedure next to the thing it operates. Write it **as it
    ended up, not as it was designed** — development rarely follows a spec
    exactly, and where the two diverged, only what is true now belongs.

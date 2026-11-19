@@ -89,9 +89,11 @@ that is what `bin/check-exposure` asks, and what it caught on `art`.
 `public` is not the absence of a gate either. It means nobody authenticates
 **reads** — the app still owes its own gate on **writes**, and
 `docs/registry.md` says to keep that write surface under its own path prefix.
-Nothing in this repository verifies that: `exposure` is one enum for a whole
-app, and `bin/check-exposure` probes `https://<hostname>` and nothing below it.
-So a public app with an unprotected write prefix passes every check here.
+The app owns that prefix in its `deploy/gated-paths` and `apps.yml` declares
+it in `gated_paths`; `bin/deploy` refuses when the two disagree, and
+`bin/check-exposure` probes each declared path for the Access redirect. What
+nothing here can see is a write route outside every declared prefix — catching
+that is the app's own route-table test.
 
 **Python and PostgreSQL are the only guaranteed common ground.** Framework,
 frontend, migration tool and whether there is a build step at all belong to each

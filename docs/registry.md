@@ -30,9 +30,9 @@ tunnel and linked from the apex page. Routing a planned app would publish a
 hostname that answers 502, which is worse than one that does not resolve.
 
 `path` is **optional and no app sets it today**: a checkout lives at
-`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>`. `media` was the one
-exception, at `~/anime_site`, until that checkout was renamed to `~/media` on
-2026-09-21 and the key came out of its entry. A leading `~/` means `$HOME`;
+`<apps dir>/<name>` — `${APPS_DIR:-$HOME}/<name>` — so a checkout's
+directory carries its app's name, or its entry sets `path` to say where it is
+instead. A leading `~/` means `$HOME`;
 anything else must be absolute, and the schema forbids whitespace in the
 value.
 

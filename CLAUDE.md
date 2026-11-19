@@ -507,6 +507,28 @@ one-line when it was described is exactly the one that grows.
   approved, three landed, and the fourth sat on a feature branch until someone
   checked `git merge-base --is-ancestor`. The stack had been created to dodge
   a **documentation** conflict, which is precisely the cheap kind.
+- **While you have an open PR, check its full status about every 10
+  minutes. Do this even when a background wait is running.** Check
+  mergeability, the merge-state status, the checks and the merge-queue
+  entry, not just whether it is still open:
+
+  ```bash
+  gh pr view <n> --json state,mergeable,mergeStateStatus,statusCheckRollup
+  gh api graphql -f query='{repository(owner:"cg1618-apps",name:"<repo>"){mergeQueue(branch:"dev"){entries(first:20){nodes{state pullRequest{number}}}}}}'
+  ```
+
+  A PR rarely fails by closing. It fails by staying open: it turns
+  `CONFLICTING` when a sibling lands, drops out of the queue as
+  `UNMERGEABLE`, or sits on a red check. A wait loop that exits on
+  "no longer `OPEN`" cannot see any of those, so it just waits until it times
+  out while I find the problem first. That happened more than once, the last
+  time with media #453, which conflicted once #450 and #452 landed. So a wait
+  loop must also exit on `CONFLICTING`, `DIRTY`, `UNMERGEABLE` or a failed
+  check, and wake at least every ~10 minutes to report. When the status
+  changes, act on it (fix the conflict, re-queue) and tell me. Don't wait to
+  be asked. **When several PRs touch the same files, expect the later ones to
+  conflict** once the earlier ones land, and recheck each one after each
+  merge.
 - **Nothing in git mentions AI.** Commit messages and pull request titles and
   bodies carry no `Co-Authored-By: Claude ...`, no `Claude-Session:`, no
   `Generated with [Claude Code]`, and no `claude.ai` or `anthropic.com` link —

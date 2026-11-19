@@ -243,8 +243,9 @@ fi
 # owns the definition and ships deploy/gated-paths; apps.yml carries the
 # declaration because bin/check-exposure runs from the platform repository with
 # no app checkout and needs the strings to have anything to probe. Two copies
-# were accepted deliberately - see docs/notes/decisions.md - on the condition
-# that drift is loud here rather than silent.
+# were accepted deliberately - see
+# docs/notes/decisions/2026-09-19-gated-paths-defined-by-the-app.md - on the
+# condition that drift is loud here rather than silent.
 #
 # Read from the COMMIT in CI for the same reason as the hook: the working tree
 # can hold uncommitted edits and what ships is what the commit says. Unlike the
@@ -258,7 +259,8 @@ fi
 
 # Strip CR, drop blank lines, sort - the comparison is about the SET of paths,
 # not the order they happen to be written in, in either place.
-APP_GATED="$(printf '%s' "${app_gated}" | tr -d '' | sed '/^[[:space:]]*$/d' | sort | paste -sd, -)"
+APP_GATED="$(printf '%s' "${app_gated}" | tr -d '
+' | sed '/^[[:space:]]*$/d' | sort | paste -sd, -)"
 [ -n "${APP_GATED}" ] || APP_GATED="-"
 
 if [ "${REG_GATED}" != "${APP_GATED}" ]; then

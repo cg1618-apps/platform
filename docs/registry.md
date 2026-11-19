@@ -1,6 +1,6 @@
 # The application registry
 
-Last verified: 2026-10-08
+Last verified: 2026-11-19
 
 `apps.yml` at the root of this repository is the one source of truth about which
 applications exist on the box and what each one is allowed to claim. The
@@ -63,6 +63,29 @@ too — the registry and the repository disagree, and which one is right is a
 person's decision rather than a script's guess. Before the key existed, an
 absent hook and a hook that had lost its `+x` were the same observation, and
 the second one deploys an unapproved migration with no rollback target.
+
+`gated_paths` is the same kind of declaration, for a `public` app's write
+surface: the path prefixes that sit behind Access while the rest of the
+hostname answers ungated. **The app owns the definition** — one constant its
+routers derive their prefix from and its tests assert against, generated into
+`deploy/gated-paths` beside `deploy/migrations`, one path per line, LF. The
+registry carries a copy because `bin/check-exposure` runs from this repository
+with no app checkout and needs the strings to have anything to probe.
+`bin/deploy` compares the two as sets, reading the app's file from the commit
+being deployed, and refuses when they disagree in either direction. A path in
+the app that the registry lacks is a write surface nothing probes, and a path
+in the registry that the app lacks is a gate nobody is behind; which one is
+right is a person's call. `bin/validate_apps.py` refuses `gated_paths` on an
+app that is not `public`, and refuses `/`. Why the app is the authority and
+two copies are accepted:
+[2026-09-19-gated-paths-defined-by-the-app.md](notes/decisions/2026-09-19-gated-paths-defined-by-the-app.md).
+
+**`deploy/gated-paths` is data, not a hook, and its mode is `100644`.** Nothing
+execs it, so none of the executable-bit rules around `deploy/migrations` apply,
+however much the analogy invites them. A check asserting `100755` on it would
+fail forever, reporting a permission problem that does not exist. Assert
+`100644` and LF, with the same `git ls-tree HEAD` mechanism and a different
+expected value.
 
 Only things that **exist** are listed. An entry claims a hostname, a port and
 a database; claiming them for something unbuilt is how a registry stops being
@@ -188,6 +211,17 @@ for null is not an exemption for a wrong name. `bin/provision` refuses such an
 entry by name before it looks at anything else, because "declares no database"
 would also be true and would send the reader after the wrong thing.
 
+Two alternatives were rejected. A made-up `cg1618-apps/logs` would put a
+repository in the registry that does not exist, so `bin/provision` would clone
+nothing and the entry would lie. Emitting the hostname unconditionally from
+`bin/generate_ingress.py`, like the apex rule, would route it while leaving it
+outside the only check that asks whether the gate is real.
+
+The apex page renders every entry, so it lists `logs`. That costs nothing:
+every hostname with a Cloudflare certificate is already in the public
+Certificate Transparency logs, so hiding it from the apex page would hide it
+from nobody.
+
 ## Exposure, and where the gate lives
 
 | Value | Who authenticates | When it fits |
@@ -202,6 +236,13 @@ itself should keep shareable routes under their own prefix from the start, so
 that opening them up later is an Access policy edit rather than a redesign. The
 same applies in reverse to a `public` app: put the write surface under its own
 prefix and protect that, or a public hostname is a public editor.
+
+`apps.yml` says what an app's exposure should be, and Access is configured in
+a dashboard this repository cannot see. **`bin/check-exposure` connects the
+two by asking the open internet**, the only place an ungated hostname looks
+different from a gated one. It is deliberately the opposite of `bin/health`,
+which probes from inside the container so that a tunnel hiccup cannot roll
+back good code.
 
 **`bin/check-exposure` asks the question in both directions.** For each
 declared prefix it probes the prefix itself and asserts the Access redirect is
@@ -410,12 +451,12 @@ owning a compose file of its own.
 docker exec cg1618-dev-db createdb -U postgres travel  # add an app's database
 ```
 
-It used to be `anime_site_postgres_db` inside **media's** compose project, and
-the name was the smaller half of that problem. The real defect was ownership: a
-`docker compose down` in any media tree removed the server every other app was
-using. A project of its own is what makes that impossible; see
-[notes/decisions.md](notes/decisions.md), "The development database belongs to
-the platform".
+**Ownership is the point, not the name.** A server inside an app's compose
+project is removed by a `docker compose down` in any tree of that app, taking
+every other app's database offline with it — `down` without `-v` leaves the
+named volume, so nothing is lost, but it reads as data loss until someone
+checks `docker events`. In a project of its own, nothing an app runs can
+adopt, recreate or destroy the server.
 
 The consequence to respect is the same one production has: a migration run in
 one app's tree cannot affect another's database, but they share a server, so
@@ -506,7 +547,12 @@ production. If it is ever done, the services are added to
 
    `deploy/migrations` is how the platform asks an app about its own schema,
    because reading a version table, deciding what a deploy adds and reversing a
-   migration are all specific to the tool an app chose. It answers three
+   migration are all specific to the tool an app chose. The platform does not
+   run the migration tool itself, even where every app happens to use the same
+   one: which revisions are irreversible, and how that is marked, is the app's
+   knowledge, and a platform running `alembic downgrade` directly would have to
+   carry every app's marker convention and would get it wrong silently the
+   first time an app chose a different one. The hook answers three
    subcommands:
 
    - **`current`** prints the revision the database is at, read from the

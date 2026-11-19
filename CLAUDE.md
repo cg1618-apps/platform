@@ -125,8 +125,8 @@ apps agreeing may be three inheritances of one decision nobody made — and **as
 the reference why**, because what reads as a convention may be a starting point
 that was never revisited. An app that finds the reference wrong and says so is
 this section working; what it rules out is diverging *silently*. The instances
-and the mechanism are in `docs/notes/decisions.md`, "`media` is the reference
-because it is read, not because it is right".
+and the mechanism are in
+`docs/notes/decisions/2026-09-19-media-is-the-reference-because-it-is-read.md`.
 
 **This is about conventions, not about the stack.** "Python and PostgreSQL are
 the only guaranteed common ground" above still holds: framework, frontend,

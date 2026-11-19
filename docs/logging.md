@@ -13,8 +13,7 @@ rewrote 312 rows" — that is domain data, it belongs in the app's own
 PostgreSQL and its own UI, and it is not logging. The distinction is worth
 holding onto: one of these is read by a person asking a question about their
 data, the other by whoever is working out why the box is behaving strangely.
-See [notes/decisions.md](notes/decisions.md), "Apps emit streams; the box
-aggregates".
+See [2026-09-20-apps-emit-streams-the-box-aggregates.md](notes/decisions/2026-09-20-apps-emit-streams-the-box-aggregates.md).
 
 ## The stream
 
@@ -239,8 +238,9 @@ a `logging.basicConfig` running as an import side effect of one router, so what
 got logged depended on which module was imported first.
 
 `media` is the reference by default under "House style", and on this one thing
-it was the app that was wrong. See [notes/decisions.md](notes/decisions.md),
-"`media` is the reference because it is read, not because it is right". `media`
+it was the app that was wrong. See
+[2026-09-19-media-is-the-reference-because-it-is-read.md](notes/decisions/2026-09-19-media-is-the-reference-because-it-is-read.md).
+`media`
 then built the fullest implementation on top of food's shape, so an app
 starting from zero should read `food` for the minimal correct `dictConfig` and
 `media` for the formatters, the request-id filter and the uvicorn takeover.

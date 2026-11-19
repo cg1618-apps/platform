@@ -29,8 +29,9 @@ requires writes behind Access on their own prefix. It is not blocking anything
 today because food has no write routes yet, but it must be settled before
 food's first write endpoint reaches `main`.
 
-The decision is made — `docs/notes/decisions.md`, "A gated path is defined by
-the app; the registry declares it and is checked". What remains is building it,
+The decision is made —
+`docs/notes/decisions/2026-09-19-gated-paths-defined-by-the-app.md`, and the
+mechanism is in `docs/registry.md`. What remains is building it,
 and none of it is urgent: food has no write routes, so nothing is exposed yet.
 
 What is left to do, in the order it has to happen:

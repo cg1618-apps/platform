@@ -1,6 +1,6 @@
 # The shared stack
 
-Last verified: 2026-10-08
+Last verified: 2026-11-19
 
 `docker-compose.prod.yml` in this repository runs the half of the box that
 belongs to no single application: one PostgreSQL and one Cloudflare Tunnel. It
@@ -65,8 +65,8 @@ name with its project, and a volume named after one application holding every
 application's data is a lie that outlives whoever shrugged at it.
 
 Nothing publishes a port. To reach PostgreSQL from a laptop, forward it over
-SSH — through the tunnel by default, see [SSH through the
-tunnel](#ssh-through-the-tunnel):
+SSH (see [SSH through the tunnel](#ssh-through-the-tunnel) for the two
+routes):
 
 ```bash
 ssh -L 5433:localhost:5432 homelab    # then psql -h localhost -p 5433
@@ -106,11 +106,11 @@ deploy cadences.
 
 ## SSH through the tunnel
 
-**This is the default way into the box.** `ssh.cg1618.com` routes to the box's
-own sshd, so the box can be reached from anywhere and not only from the home
-LAN — which matters because the machine doing the work is normally not on the
-same network as the box. The direct LAN connection is the fallback, kept for
-when the tunnel is down.
+`ssh.cg1618.com` routes to the box's own sshd, so the box can be reached from
+anywhere and not only from the home LAN. **It is the second route, not the
+default:** the direct LAN connection is faster and still works when
+`cloudflared` is what is broken, so `homelab` is the LAN and the tunnel is
+`homelab-tunnel` (below).
 
 **Only the home machine is a client.** The company machine deliberately has no
 `cloudflared`, no `~/.ssh/config` entry and no key for the box, so that nothing
@@ -118,8 +118,13 @@ about the box goes over the company network; work that needs the box waits for
 the home machine. That absence is a decision, not an unfinished setup —
 nothing should "fix" it. Each machine's `CLAUDE.local.md` says which one it is. The ingress rule is
 `ssh://host.docker.internal:22`, and the `extra_hosts` entry on `cloudflared`
-is what makes that name resolve inside the container. The reasoning is in
-[notes/decisions.md](notes/decisions.md).
+is what makes that name resolve inside the container: `host-gateway` maps it
+to the host's address on Docker's default bridge, `docker0` (`172.17.0.1`),
+not to the `cg1618` network's gateway, even though the container sits on
+`cg1618`. sshd listens on `0.0.0.0`, so it answers on either. A session through
+the tunnel shows up in sshd as coming from the `cloudflared` container's
+`cg1618` address. Why SSH goes through the tunnel and is not in `apps.yml`:
+[2026-09-25-ssh-through-the-tunnel.md](notes/decisions/2026-09-25-ssh-through-the-tunnel.md).
 
 **sshd accepts keys only.** `sudo sshd -T | grep passwordauthentication`
 answers `no`. It is the check behind Access, not a replacement for it, and on a
@@ -200,8 +205,8 @@ container. What the applications put *into* the stream is
 **Loki rather than Elasticsearch** because this is a mini PC that is also
 running four applications and a database; Loki indexes labels rather than full
 text, which fits a box where the question is nearly always "what did this
-container do around this time". The full reasoning, and the Dozzle fallback
-that was not needed, is in [notes/decisions.md](notes/decisions.md).
+container did around this time". The full reasoning, and the Dozzle fallback,
+is in [2026-09-20-apps-emit-streams-the-box-aggregates.md](notes/decisions/2026-09-20-apps-emit-streams-the-box-aggregates.md).
 
 ### Alloy holds the docker socket, and that is the real cost
 
@@ -460,6 +465,9 @@ client rather than wait out its backoff. They cannot make a router answer that
 is not answering, so as with the link, what they reliably add is the record.
 
 ### The smart plug, and why the box never powers itself off
+
+The alternatives to a plug that were considered and not taken are in
+[2026-10-05-dead-link-recovered-by-a-smart-plug.md](notes/decisions/2026-10-05-dead-link-recovered-by-a-smart-plug.md).
 
 What did work was removing power. The box is fed through a Tapo P105 smart
 plug (智慧插座), switched from the Tapo app over its cloud, so it works from
